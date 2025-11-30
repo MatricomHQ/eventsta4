@@ -31,6 +31,7 @@ export interface TicketOption {
   quantity?: number; // Total tickets available
   sold?: number; // Total tickets sold
   saleEndDate?: string; // Specific cutoff date for this ticket
+  category?: 'TICKET' | 'ADD_ON'; // NEW: Unified inventory category
 }
 
 export interface AddOn {
@@ -39,6 +40,7 @@ export interface AddOn {
   price: number; // For ticketed events: fixed price. For fundraisers: recommended donation.
   minimumDonation?: number; // For fundraiser events: minimum donation required.
   description?: string;
+  category?: 'TICKET' | 'ADD_ON'; // NEW: Unified inventory category
 }
 
 // NEW: Section type for artist profile pages

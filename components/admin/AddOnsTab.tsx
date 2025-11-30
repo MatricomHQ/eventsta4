@@ -1,4 +1,5 @@
 
+
 import React, { useState } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import * as api from '../../services/api';
@@ -14,7 +15,8 @@ const AddOnsTab: React.FC<{ event: EventType, onEventUpdate: () => void }> = ({ 
         if (!user) return;
         setIsSaving(true);
         try {
-            await api.updateEvent(user.id, event.id, { addOns });
+            // Include both addOns and tickets to prevent deletion of the other category in unified inventory
+            await api.updateEvent(user.id, event.id, { addOns, tickets: event.tickets });
             onEventUpdate();
             alert("Add-ons updated!");
         } catch (e) {

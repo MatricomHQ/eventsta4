@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { TicketOption } from '../types';
-import { TrashIcon } from './Icons';
+import { TrashIcon, PlusIcon, GripVerticalIcon, ChevronDownIcon } from './Icons';
 
 interface Wrapper {
     data: TicketOption;
@@ -15,28 +14,157 @@ interface TicketEditorProps {
     isFundraiser?: boolean;
 }
 
+const EditableTicketItem: React.FC<{
+    ticket: TicketOption,
+    uiKey: string,
+    isExpanded: boolean,
+    onToggle: () => void,
+    onUpdate: (key: string, field: keyof TicketOption, value: any) => void,
+    onDelete: () => void,
+    isFundraiser: boolean,
+}> = ({ ticket, uiKey, isExpanded, onToggle, onUpdate, onDelete, isFundraiser }) => {
+    
+    const soldCount = ticket.sold || 0;
+    const maxCount = ticket.quantity;
+    const hasCapacity = maxCount !== undefined && maxCount !== null;
+    const percentage = hasCapacity && maxCount > 0 ? Math.min((soldCount / maxCount) * 100, 100) : 0;
+    const isSoldOut = hasCapacity && soldCount >= maxCount;
+
+    const formatDateForInput = (isoString?: string) => {
+        if (!isoString) return '';
+        const date = new Date(isoString);
+        date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+        return date.toISOString().slice(0, 16);
+    };
+
+    return (
+        <div className={`bg-neutral-900 border rounded-2xl transition-all duration-300 group ${isExpanded ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-neutral-800 hover:border-neutral-700'}`}>
+            {/* --- Summary View (Header) --- */}
+            <div 
+                className="flex items-center p-4 cursor-pointer"
+                onClick={onToggle}
+            >
+                <div className="text-neutral-500 cursor-grab p-2 -ml-2"><GripVerticalIcon className="w-5 h-5"/></div>
+                
+                <div className="flex-grow mx-4">
+                    <div className="flex items-center gap-3">
+                        <h4 className="font-bold text-white truncate">{ticket.type || 'Untitled Ticket'}</h4>
+                        {isSoldOut && <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-full border bg-red-500/10 text-red-400 border-red-500/20">Sold Out</span>}
+                        {!isSoldOut && ticket.id && <span className="text-[10px] uppercase font-bold tracking-wider px-2 py-1 rounded-full border bg-green-500/10 text-green-400 border-green-500/20">Active</span>}
+                    </div>
+                    <div className="flex items-center gap-4 text-xs text-neutral-400 mt-2">
+                        <span>{isFundraiser ? 'Suggested: ' : ''}<span className="font-mono font-semibold">${(ticket.price || 0).toFixed(2)}</span></span>
+                        {hasCapacity && <span>Capacity: <span className="font-mono font-semibold">{maxCount}</span></span>}
+                        {hasCapacity && (
+                            <div className="flex items-center gap-2">
+                                <span>Sales:</span>
+                                <div className="w-16 h-1 bg-neutral-700 rounded-full overflow-hidden">
+                                    <div className={`h-full ${isSoldOut ? 'bg-red-500' : 'bg-purple-500'}`} style={{width: `${percentage}%`}}></div>
+                                </div>
+                                <span className="font-mono text-neutral-500">{soldCount}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+
+                <div className="flex items-center">
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-2 text-neutral-500 hover:text-red-400 rounded-lg hover:bg-neutral-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <TrashIcon className="w-5 h-5"/>
+                    </button>
+                    <ChevronDownIcon className={`w-6 h-6 text-neutral-500 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                </div>
+            </div>
+
+            {/* --- Expanded Form View --- */}
+            <div className={`grid transition-all duration-300 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                    <div className="border-t border-neutral-800 p-6 space-y-5">
+                        {/* The full form from the original file */}
+                        <div>
+                            <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">
+                                {isFundraiser ? 'Tier Name' : 'Ticket Name'}
+                            </label>
+                            <input type="text" value={ticket.type} onChange={e => onUpdate(uiKey, 'type', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium" />
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                             {isFundraiser ? (
+                                <>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Suggested Amount</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
+                                            <input type="number" value={ticket.price || ''} onChange={e => onUpdate(uiKey, 'price', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 pl-8 pr-4 text-white font-medium" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Minimum Amount</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
+                                            <input type="number" value={ticket.minimumDonation || ''} onChange={e => onUpdate(uiKey, 'minimumDonation', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 pl-8 pr-4 text-white font-medium" />
+                                        </div>
+                                    </div>
+                                </>
+                             ) : (
+                                <>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Price</label>
+                                        <div className="relative">
+                                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span>
+                                            <input type="number" value={ticket.price || ''} onChange={e => onUpdate(uiKey, 'price', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 pl-8 pr-4 text-white font-medium" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Capacity (Total Tickets)</label>
+                                        <input type="number" placeholder="Unlimited" value={ticket.quantity || ''} onChange={e => onUpdate(uiKey, 'quantity', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium" />
+                                    </div>
+                                </>
+                             )}
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                             {isFundraiser && (
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Capacity (Total Donations)</label>
+                                    <input type="number" placeholder="Unlimited" value={ticket.quantity || ''} onChange={e => onUpdate(uiKey, 'quantity', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium" />
+                                </div>
+                            )}
+                            <div className={!isFundraiser ? "md:col-span-2" : ""}>
+                                <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Sales End Date (Optional)</label>
+                                <input type="datetime-local" value={formatDateForInput(ticket.saleEndDate)} onChange={e => onUpdate(uiKey, 'saleEndDate', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium" />
+                            </div>
+                        </div>
+                        <div>
+                            <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Description</label>
+                            <textarea placeholder="Includes skip-the-line access, free drink, etc..." value={ticket.description || ''} onChange={e => onUpdate(uiKey, 'description', e.target.value)} rows={2} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium resize-none" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 const TicketEditor: React.FC<TicketEditorProps> = ({ tickets, onTicketsChange, isFundraiser = false }) => {
-    // We use a wrapper to maintain stable keys for UI inputs, 
-    // while keeping data separated to properly preserve/omit backend IDs.
     const [wrappers, setWrappers] = useState<Wrapper[]>([]);
+    const [expandedUiKey, setExpandedUiKey] = useState<string | null>(null);
 
     useEffect(() => {
         setWrappers(currentWrappers => {
-            // Re-sync with props, but preserve keys if index matches to avoid input focus loss
             return tickets.map((ticket, index) => {
-                const existingKey = currentWrappers[index]?.uiKey || uuidv4();
+                // Find existing wrapper: 1. by stable ID, 2. by index for new items.
+                let existing = ticket.id ? currentWrappers.find(w => w.data.id === ticket.id) : undefined;
+                if (!existing && !ticket.id && currentWrappers[index] && !currentWrappers[index].data.id) {
+                    existing = currentWrappers[index];
+                }
+
                 return {
                     data: ticket,
-                    uiKey: existingKey
+                    uiKey: existing?.uiKey || uuidv4() // Reuse uiKey if found, else generate new one
                 };
             });
         });
     }, [tickets]);
     
     const updateParent = (newWrappers: Wrapper[]) => {
-        // Map back to domain objects.
-        // CRITICAL: We preserve the 'id' field if it exists in the data. 
-        // We do NOT add the 'uiKey' to the domain object.
         const domainTickets = newWrappers.map(w => w.data);
         onTicketsChange(domainTickets);
     };
@@ -51,10 +179,7 @@ const TicketEditor: React.FC<TicketEditorProps> = ({ tickets, onTicketsChange, i
                 } else if (isNumericField && value === '') {
                     updatedValue = undefined;
                 }
-                return { 
-                    ...w, 
-                    data: { ...w.data, [field]: updatedValue } 
-                };
+                return { ...w, data: { ...w.data, [field]: updatedValue } };
             }
             return w;
         });
@@ -63,140 +188,42 @@ const TicketEditor: React.FC<TicketEditorProps> = ({ tickets, onTicketsChange, i
 
     const addTicket = () => {
         const newTicket: TicketOption = { 
-            type: '', 
-            price: 0.00, 
-            description: '', 
-            minimumDonation: 0, 
-            quantity: 100 
-            // NOTE: No ID is added here. This tells backend to CREATE.
+            type: '', price: 0.00, description: '', 
+            minimumDonation: 0, quantity: 100 
         };
         const newWrapper = { data: newTicket, uiKey: uuidv4() };
         updateParent([...wrappers, newWrapper]);
+        setExpandedUiKey(newWrapper.uiKey);
     };
 
-    const removeTicket = (indexToRemove: number) => {
-        const newWrappers = wrappers.filter((_, index) => index !== indexToRemove);
+    const removeTicket = (keyToRemove: string) => {
+        const newWrappers = wrappers.filter(w => w.uiKey !== keyToRemove);
         updateParent(newWrappers);
-    };
-
-    // Format Date for datetime-local input (YYYY-MM-DDTHH:mm)
-    const formatDateForInput = (isoString?: string) => {
-        if (!isoString) return '';
-        const date = new Date(isoString);
-        date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
-        return date.toISOString().slice(0, 16);
     };
 
     return (
         <div className="space-y-4">
-            {wrappers.map((wrapper, index) => {
-                const ticket = wrapper.data;
-                const soldCount = ticket.sold || 0;
-                const maxCount = ticket.quantity || 0;
-                const percentage = maxCount > 0 ? Math.min((soldCount / maxCount) * 100, 100) : 0;
-
-                return (
-                    <div key={wrapper.uiKey} className="bg-neutral-800 p-4 rounded-lg border border-neutral-700">
-                        <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-md font-semibold text-white flex items-center gap-2">
-                                {isFundraiser ? 'Donation Tier' : 'Ticket Option'} #{index + 1}
-                                {maxCount > 0 && (
-                                    <span className={`text-xs px-2 py-0.5 rounded-full border ${percentage >= 100 ? 'bg-red-500/20 text-red-400 border-red-500/30' : 'bg-green-500/20 text-green-400 border-green-500/30'}`}>
-                                        {percentage >= 100 ? 'SOLD OUT' : 'Active'}
-                                    </span>
-                                )}
-                                {ticket.id && <span className="text-[10px] text-neutral-500 font-mono">ID: {ticket.id.split('-').pop()}</span>}
-                            </h4>
-                            {wrappers.length > 1 && (
-                                <button onClick={() => removeTicket(index)} className="text-red-500 hover:text-red-400"><TrashIcon className="w-5 h-5"/></button>
-                            )}
-                        </div>
-                        
-                        {/* Main Details */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <input 
-                                type="text" 
-                                placeholder={isFundraiser ? 'Tier Name (e.g., Art Patron)' : 'Ticket Type (e.g., VIP)'}
-                                value={ticket.type} 
-                                onChange={e => handleTicketChange(wrapper.uiKey, 'type', e.target.value)} 
-                                className="w-full h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500" 
-                            />
-                            <input 
-                                type="number" 
-                                placeholder={isFundraiser ? 'Recommended Donation' : 'Price'}
-                                value={ticket.price} 
-                                onChange={e => handleTicketChange(wrapper.uiKey, 'price', e.target.value)} 
-                                className="w-full h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                step="0.01"
-                                min="0"
-                            />
-                        </div>
-
-                        {/* Inventory & Dates */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                            <div>
-                                <label className="text-xs text-neutral-400 uppercase font-bold mb-1 block">Total Quantity (Capacity)</label>
-                                <input 
-                                    type="number" 
-                                    placeholder="Unlimited"
-                                    value={ticket.quantity || ''}
-                                    onChange={e => handleTicketChange(wrapper.uiKey, 'quantity', e.target.value)}
-                                    className="w-full h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    min="0"
-                                />
-                            </div>
-                            <div>
-                                <label className="text-xs text-neutral-400 uppercase font-bold mb-1 block">Sales End Date (Optional)</label>
-                                <input 
-                                    type="datetime-local"
-                                    value={formatDateForInput(ticket.saleEndDate)}
-                                    onChange={e => handleTicketChange(wrapper.uiKey, 'saleEndDate', e.target.value)}
-                                    className="w-full h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                />
-                            </div>
-                        </div>
-
-                        {/* Sales Progress Bar (Admin Only View) */}
-                        {maxCount > 0 && (
-                            <div className="mb-4 bg-neutral-900/50 p-3 rounded-lg border border-neutral-700/50">
-                                <div className="flex justify-between text-xs mb-1">
-                                    <span className="text-neutral-400">Sales Progress</span>
-                                    <span className="text-white font-mono">{soldCount} / {maxCount} Sold</span>
-                                </div>
-                                <div className="w-full h-2 bg-neutral-700 rounded-full overflow-hidden">
-                                    <div 
-                                        className={`h-full rounded-full transition-all ${percentage >= 100 ? 'bg-red-500' : 'bg-purple-500'}`} 
-                                        style={{ width: `${percentage}%` }}
-                                    ></div>
-                                </div>
-                            </div>
-                        )}
-
-                        {isFundraiser && (
-                             <div className="mt-4">
-                                 <input 
-                                    type="number" 
-                                    placeholder="Minimum Donation" 
-                                    value={ticket.minimumDonation || ''}
-                                    onChange={e => handleTicketChange(wrapper.uiKey, 'minimumDonation', e.target.value)} 
-                                    className="w-full md:w-1/2 h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    step="0.01"
-                                    min="0"
-                                />
-                             </div>
-                        )}
-                         <textarea 
-                            placeholder="Optional description..." 
-                            value={ticket.description || ''} 
-                            onChange={e => handleTicketChange(wrapper.uiKey, 'description', e.target.value)} 
-                            rows={2} 
-                            className="w-full mt-0 p-3 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none" 
-                        />
-                    </div>
-                );
-            })}
-            <button onClick={addTicket} className="w-full mt-2 px-5 py-3 text-sm font-semibold text-purple-400 hover:text-white transition-colors bg-purple-500/10 hover:bg-purple-500/20 rounded-lg">
-                Add {isFundraiser ? 'Donation Tier' : 'Ticket Type'}
+            {wrappers.map((wrapper, index) => (
+                <EditableTicketItem 
+                    key={wrapper.uiKey}
+                    ticket={wrapper.data}
+                    uiKey={wrapper.uiKey}
+                    isExpanded={expandedUiKey === wrapper.uiKey}
+                    onToggle={() => setExpandedUiKey(expandedUiKey === wrapper.uiKey ? null : wrapper.uiKey)}
+                    onUpdate={handleTicketChange}
+                    onDelete={() => removeTicket(wrapper.uiKey)}
+                    isFundraiser={isFundraiser}
+                />
+            ))}
+            
+            <button 
+                onClick={addTicket} 
+                className="w-full py-4 border-2 border-dashed border-neutral-800 hover:border-purple-500/50 rounded-2xl text-neutral-400 hover:text-purple-400 font-semibold transition-all duration-300 flex items-center justify-center gap-2 group"
+            >
+                <div className="bg-neutral-800 group-hover:bg-purple-500/20 p-1.5 rounded-full transition-colors">
+                    <PlusIcon className="w-4 h-4" />
+                </div>
+                <span>Add {isFundraiser ? 'Donation Tier' : 'Ticket Type'}</span>
             </button>
         </div>
     );

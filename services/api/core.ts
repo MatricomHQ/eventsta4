@@ -1,7 +1,8 @@
 
+
 import { v4 as uuidv4 } from 'uuid';
 import { createEventSlug } from '../../utils/url';
-import { User, Event, Host, PurchasedTicket, PromoStat, Payout, TicketOption, CompetitionForm, Competition, Order } from '../../types';
+import { User, Event, Host, PurchasedTicket, PromoStat, Payout, TicketOption, CompetitionForm, Competition, Order, AddOn } from '../../types';
 
 // Update Base URL to use HTTPS as requested
 export const getBaseUrl = () => {
@@ -273,34 +274,40 @@ export function mapApiEventToFrontend(apiEvent: any): Event {
     }
 
     const rawInventory = apiEvent.inventory || [];
-    const uniqueTicketIds = new Set();
-    const tickets = [];
+    const tickets: TicketOption[] = [];
+    const addOns: AddOn[] = [];
+    const uniqueIds = new Set();
 
+    // Map unified inventory array to frontend specific arrays
     for (const inv of rawInventory) {
-        if (inv.id && uniqueTicketIds.has(inv.id)) {
+        if (inv.id && uniqueIds.has(inv.id)) {
             continue;
         }
-        if (inv.id) uniqueTicketIds.add(inv.id);
+        if (inv.id) uniqueIds.add(inv.id);
         
-        tickets.push({
-            id: inv.id,
-            type: inv.type,
-            price: inv.price,
-            quantity: inv.quantity_total,
-            sold: inv.quantity_sold,
-            minimumDonation: inv.min_donation
-        });
+        if (inv.category === 'ADD_ON') {
+            addOns.push({
+                id: inv.id,
+                name: inv.type, // Map 'type' back to 'name' for AddOn
+                price: inv.price,
+                description: inv.description,
+                minimumDonation: inv.min_donation,
+                category: 'ADD_ON'
+            });
+        } else {
+            // Default to ticket if category is TICKET or missing (legacy)
+            tickets.push({
+                id: inv.id,
+                type: inv.type,
+                price: inv.price,
+                quantity: inv.quantity_total,
+                sold: inv.quantity_sold,
+                minimumDonation: inv.min_donation,
+                description: inv.description,
+                category: 'TICKET'
+            });
+        }
     }
-
-    // Map AddOns explicitly to ensure field consistency
-    const addOns = (apiEvent.addOns || []).map((a: any) => ({
-        // Fix: Use 'type' as name fallback because the backend returns 'type' but no 'name' for addons
-        name: a.name || a.type || 'Add-on',
-        price: a.price,
-        description: a.description,
-        // Support both snake_case (from backend) and camelCase (optimistic local update)
-        minimumDonation: a.min_donation !== undefined ? a.min_donation : a.minimumDonation
-    }));
 
     const forms = (apiEvent.forms || []).map((f: any) => ({
         id: f.id,

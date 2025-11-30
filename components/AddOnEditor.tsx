@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { AddOn } from '../types';
-import { TrashIcon } from './Icons';
+import { TrashIcon, PlusIcon, GripVerticalIcon, ChevronDownIcon } from './Icons';
 
 interface Wrapper {
     data: AddOn;
@@ -15,36 +14,114 @@ interface AddOnEditorProps {
     isFundraiser?: boolean;
 }
 
+const EditableAddOnItem: React.FC<{
+    addOn: AddOn,
+    uiKey: string,
+    isExpanded: boolean,
+    onToggle: () => void,
+    onUpdate: (key: string, field: keyof AddOn, value: any) => void,
+    onDelete: () => void,
+    isFundraiser: boolean,
+}> = ({ addOn, uiKey, isExpanded, onToggle, onUpdate, onDelete, isFundraiser }) => {
+    
+    return (
+        <div className={`bg-neutral-900 border rounded-2xl transition-all duration-300 group ${isExpanded ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-neutral-800 hover:border-neutral-700'}`}>
+            {/* --- Summary View (Header) --- */}
+            <div 
+                className="flex items-center p-4 cursor-pointer"
+                onClick={onToggle}
+            >
+                <div className="text-neutral-500 cursor-grab p-2 -ml-2"><GripVerticalIcon className="w-5 h-5"/></div>
+                
+                <div className="flex-grow mx-4">
+                    <h4 className="font-bold text-white truncate">{addOn.name || 'Untitled Add-on'}</h4>
+                    <div className="flex items-center gap-4 text-xs text-neutral-400 mt-1">
+                        <span>{isFundraiser ? 'Suggested: ' : 'Price: '}<span className="font-mono font-semibold">${(addOn.price || 0).toFixed(2)}</span></span>
+                        {isFundraiser && <span>Min: <span className="font-mono font-semibold">${(addOn.minimumDonation || 0).toFixed(2)}</span></span>}
+                    </div>
+                </div>
+
+                <div className="flex items-center">
+                    <button onClick={(e) => { e.stopPropagation(); onDelete(); }} className="p-2 text-neutral-500 hover:text-red-400 rounded-lg hover:bg-neutral-800 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <TrashIcon className="w-5 h-5"/>
+                    </button>
+                    <ChevronDownIcon className={`w-6 h-6 text-neutral-500 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                </div>
+            </div>
+
+            {/* --- Expanded Form View --- */}
+            <div className={`grid transition-all duration-300 ease-in-out ${isExpanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'}`}>
+                <div className="overflow-hidden">
+                    <div className="border-t border-neutral-800 p-6 space-y-5">
+                        <div>
+                            <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Add-on Name</label>
+                            <input type="text" value={addOn.name} onChange={e => onUpdate(uiKey, 'name', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium" />
+                        </div>
+                        {isFundraiser ? (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Recommended Amount</label>
+                                    <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input type="number" value={addOn.price} onChange={e => onUpdate(uiKey, 'price', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 pl-8 pr-4 text-white font-medium" /></div>
+                                </div>
+                                <div>
+                                    <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Minimum Required</label>
+                                    <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input type="number" value={addOn.minimumDonation || ''} onChange={e => onUpdate(uiKey, 'minimumDonation', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 pl-8 pr-4 text-white font-medium" /></div>
+                                </div>
+                            </div>
+                        ) : (
+                            <div>
+                                <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Price</label>
+                                <div className="relative"><span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">$</span><input type="number" value={addOn.price} onChange={e => onUpdate(uiKey, 'price', e.target.value)} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 pl-8 pr-4 text-white font-medium" /></div>
+                            </div>
+                        )}
+                        <div>
+                            <label className="block text-xs font-bold text-neutral-500 uppercase tracking-wider mb-2">Description (Optional)</label>
+                            <textarea value={addOn.description || ''} onChange={e => onUpdate(uiKey, 'description', e.target.value)} rows={2} className="w-full bg-neutral-950 border border-neutral-700 rounded-lg py-3 px-4 text-white font-medium resize-none" />
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const AddOnEditor: React.FC<AddOnEditorProps> = ({ addOns, onAddOnsChange, isFundraiser = false }) => {
     const [wrappers, setWrappers] = useState<Wrapper[]>([]);
+    const [expandedUiKey, setExpandedUiKey] = useState<string | null>(null);
 
     useEffect(() => {
         setWrappers(currentWrappers => {
-            return addOns.map((addOn, index) => {
-                const existingKey = currentWrappers[index]?.uiKey || uuidv4();
+            return (addOns || []).map((addOn, index) => {
+                // Find existing wrapper: 1. by stable ID, 2. by index for new items.
+                let existing = addOn.id ? currentWrappers.find(w => w.data.id === addOn.id) : undefined;
+                if (!existing && !addOn.id && currentWrappers[index] && !currentWrappers[index].data.id) {
+                    existing = currentWrappers[index];
+                }
+
                 return {
                     data: addOn,
-                    uiKey: existingKey
+                    uiKey: existing?.uiKey || uuidv4() // Reuse uiKey if found, else generate new one
                 };
             });
         });
     }, [addOns]);
     
     const updateParent = (newWrappers: Wrapper[]) => {
-        // Map back to domain objects, preserving IDs if they exist.
         const domainAddOns = newWrappers.map(w => w.data);
         onAddOnsChange(domainAddOns);
     };
 
     const handleAddOnChange = (key: string, field: keyof AddOn, value: any) => {
         const newWrappers = wrappers.map(w => {
-             if (w.uiKey === key) {
+            if (w.uiKey === key) {
                 const isNumericField = field === 'price' || field === 'minimumDonation';
-                const updatedValue = isNumericField ? parseFloat(value) || 0 : value;
-                return { 
-                    ...w, 
-                    data: { ...w.data, [field]: updatedValue } 
-                };
+                let updatedValue = value;
+                if (isNumericField && value !== '') {
+                    updatedValue = parseFloat(value) || 0;
+                } else if (isNumericField && value === '') {
+                    updatedValue = undefined;
+                }
+                return { ...w, data: { ...w.data, [field]: updatedValue } };
             }
             return w;
         });
@@ -52,72 +129,41 @@ const AddOnEditor: React.FC<AddOnEditorProps> = ({ addOns, onAddOnsChange, isFun
     };
 
     const addAddOn = () => {
-        // No ID tells backend to CREATE
         const newAddOn: AddOn = { name: '', price: 0.00, description: '', minimumDonation: 0 };
         const newWrapper = { data: newAddOn, uiKey: uuidv4() };
         updateParent([...wrappers, newWrapper]);
+        setExpandedUiKey(newWrapper.uiKey);
     };
 
-    const removeAddOn = (indexToRemove: number) => {
-        const newWrappers = wrappers.filter((_, index) => index !== indexToRemove);
+    const removeAddOn = (keyToRemove: string) => {
+        const newWrappers = wrappers.filter(w => w.uiKey !== keyToRemove);
         updateParent(newWrappers);
     };
 
     return (
         <div className="space-y-4">
-            {wrappers.map((wrapper, index) => {
-                const addOn = wrapper.data;
-                return (
-                    <div key={wrapper.uiKey} className="bg-neutral-800 p-4 rounded-lg border border-neutral-700">
-                        <div className="flex items-center justify-between mb-4">
-                            <h4 className="text-md font-semibold text-white">
-                                {isFundraiser ? 'Donation Add-on' : 'Add-on Option'} #{index + 1}
-                                {addOn.id && <span className="ml-2 text-[10px] text-neutral-500 font-mono">ID: {addOn.id.split('-').pop()}</span>}
-                            </h4>
-                            <button onClick={() => removeAddOn(index)} className="text-red-500 hover:text-red-400"><TrashIcon className="w-5 h-5"/></button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <input 
-                                type="text" 
-                                placeholder="Add-on Name (e.g., VIP Access)" 
-                                value={addOn.name} 
-                                onChange={e => handleAddOnChange(wrapper.uiKey, 'name', e.target.value)} 
-                                className="w-full h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500" 
-                            />
-                            <input 
-                                type="number" 
-                                placeholder={isFundraiser ? 'Recommended Donation' : 'Price'}
-                                value={addOn.price} 
-                                onChange={e => handleAddOnChange(wrapper.uiKey, 'price', e.target.value)} 
-                                className="w-full h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                step="0.01"
-                                min="0"
-                            />
-                        </div>
-                        {isFundraiser && (
-                             <div className="mt-4">
-                                 <input 
-                                    type="number" 
-                                    placeholder="Minimum Donation" 
-                                    value={addOn.minimumDonation || ''}
-                                    onChange={e => handleAddOnChange(wrapper.uiKey, 'minimumDonation', e.target.value)} 
-                                    className="w-full md:w-1/2 h-10 px-4 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
-                                    step="0.01"
-                                    min="0"
-                                />
-                             </div>
-                        )}
-                         <textarea 
-                            placeholder="Optional description..." 
-                            value={addOn.description || ''} 
-                            onChange={e => handleAddOnChange(wrapper.uiKey, 'description', e.target.value)} 
-                            rows={2} 
-                            className="w-full mt-4 p-3 bg-neutral-700 border border-neutral-600 rounded-md text-white focus:outline-none focus:ring-2 focus:ring-purple-500 resize-none" 
-                        />
-                    </div>
-                );
-            })}
-            <button onClick={addAddOn} className="w-full mt-2 px-5 py-3 text-sm font-semibold text-purple-400 hover:text-white transition-colors bg-purple-500/10 hover:bg-purple-500/20 rounded-lg">Add Add-on</button>
+            {wrappers.map((wrapper) => (
+                <EditableAddOnItem
+                    key={wrapper.uiKey}
+                    addOn={wrapper.data}
+                    uiKey={wrapper.uiKey}
+                    isExpanded={expandedUiKey === wrapper.uiKey}
+                    onToggle={() => setExpandedUiKey(expandedUiKey === wrapper.uiKey ? null : wrapper.uiKey)}
+                    onUpdate={handleAddOnChange}
+                    onDelete={() => removeAddOn(wrapper.uiKey)}
+                    isFundraiser={isFundraiser}
+                />
+            ))}
+            
+            <button 
+                onClick={addAddOn} 
+                className="w-full py-4 border-2 border-dashed border-neutral-800 hover:border-purple-500/50 rounded-2xl text-neutral-400 hover:text-purple-400 font-semibold transition-all duration-300 flex items-center justify-center gap-2 group"
+            >
+                <div className="bg-neutral-800 group-hover:bg-purple-500/20 p-1.5 rounded-full transition-colors">
+                    <PlusIcon className="w-4 h-4" />
+                </div>
+                <span>Add Add-on</span>
+            </button>
         </div>
     );
 };

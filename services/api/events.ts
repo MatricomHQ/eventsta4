@@ -1,4 +1,5 @@
 
+
 import { Event, Host, PromoStat, ReportData, Order, PromoCode, LeaderboardEntry, CheckoutCart, CompetitionForm, PayoutRequest, HostFinancials, SystemEmailTemplate, SystemEmailTrigger, SystemSettings, EmailDraft, EmailCampaign, TargetRole, Review, TicketOption } from '../../types';
 import { request, uploadFile, mapApiEventToFrontend, mapApiHostToFrontend, mapApiOrderToFrontend, parseImages, getUsersByIds, backfillHostNames } from './core';
 import * as emailService from '../emailService';
@@ -21,6 +22,26 @@ export const getEventDetails = async (id: string): Promise<Event> => {
 export const createEvent = async (userId: string, hostId: string, eventData: Partial<Event>): Promise<Event> => {
     console.info(`[ACTION] createEvent: User ${userId} creating event for Host ${hostId}`);
     
+    // Construct unified inventory payload
+    const inventoryPayload = [
+        ...(eventData.tickets || []).map(t => ({
+            type: t.type,
+            price: t.price,
+            quantity_total: t.quantity || 100, 
+            min_donation: t.minimumDonation,
+            description: t.description,
+            category: 'TICKET'
+        })),
+        ...(eventData.addOns || []).map(a => ({
+            type: a.name, // Map name to type
+            price: a.price,
+            quantity_total: 1000, 
+            min_donation: a.minimumDonation, 
+            description: a.description,
+            category: 'ADD_ON'
+        }))
+    ];
+
     const backendPayload = {
         host_id: hostId,
         title: eventData.title,
@@ -32,20 +53,8 @@ export const createEvent = async (userId: string, hostId: string, eventData: Par
         images: eventData.imageUrls || [],
         commission_rate: eventData.commission,
         promo_discount_rate: eventData.defaultPromoDiscount,
-        inventory: eventData.tickets?.map(t => ({
-            type: t.type,
-            price: t.price,
-            quantity_total: t.quantity || 100, 
-            min_donation: t.minimumDonation,
-            description: t.description
-        })) || [],
-        addOns: eventData.addOns?.map(a => ({
-            name: a.name,
-            price: a.price,
-            quantity_total: 1000, // Ensure backend sees this as valid inventory
-            min_donation: a.minimumDonation, // Map camelCase to snake_case
-            description: a.description
-        })) || [],
+        inventory: inventoryPayload, // Unified inventory
+        addOns: [], // Empty legacy field
         schedule: eventData.schedule || [],
         venueAreas: eventData.venueAreas || [],
         status: eventData.status 
@@ -99,33 +108,34 @@ export const updateEvent = async (userId: string, eventId: string, updates: Part
         delete payload.hostId;
     }
     
-    if (updates.tickets) {
-        payload.inventory = updates.tickets.map(t => ({
-            id: t.id,
-            type: t.type,
-            price: t.price,
-            quantity_total: t.quantity,
-            min_donation: t.minimumDonation,
-            description: t.description
-        }));
-        delete payload.tickets;
-    }
-
-    // FIX: Include ID in addOns map to allow updates instead of duplication
-    if (updates.addOns) {
-        payload.addOns = updates.addOns.map(a => {
-            // Check if 'a' has an ID property (it might be typed as AddOn which implies optional id in some contexts or missing from interface but present in object)
-            // We cast to 'any' to safely access 'id' if it exists on the runtime object
-            const item = a as any;
-            return {
-                id: item.id, // IMPORTANT: Send ID back to server
-                name: a.name,
+    // Check if we are updating inventory items (either tickets or addOns)
+    // NOTE: It is the responsibility of the calling component to provide BOTH tickets and addOns
+    // if either is being updated, to ensure the full inventory list is sent to the backend.
+    if (updates.tickets || updates.addOns) {
+        const inventoryPayload = [
+            ...(updates.tickets || []).map(t => ({
+                id: t.id,
+                type: t.type,
+                price: t.price,
+                quantity_total: t.quantity,
+                min_donation: t.minimumDonation,
+                description: t.description,
+                category: 'TICKET'
+            })),
+            ...(updates.addOns || []).map(a => ({
+                id: a.id,
+                type: a.name,
                 price: a.price,
                 quantity_total: 1000, 
                 min_donation: a.minimumDonation,
-                description: a.description
-            };
-        });
+                description: a.description,
+                category: 'ADD_ON'
+            }))
+        ];
+        
+        payload.inventory = inventoryPayload;
+        delete payload.tickets;
+        delete payload.addOns;
     }
 
     const res = await request<any>(`/events/${eventId}`, {
@@ -390,6 +400,18 @@ export const getReportData = async (eventId: string): Promise<ReportData> => {
 
     const event = mapApiEventToFrontend(rawReport.event || {});
     
+    // Helper to safely parse numbers, handling potential backend corruption like "[object Promise]"
+    const parseSafeFloat = (val: any) => {
+        if (typeof val === 'number') return val;
+        if (typeof val === 'string') {
+            // Remove non-numeric chars except dot and minus, but handle the specific corruption case
+            if (val.includes('object Promise')) return 0; // Backend corruption detected
+            const num = parseFloat(val);
+            return isNaN(num) ? 0 : num;
+        }
+        return 0;
+    };
+
     // Use promotions from report if available, otherwise array is empty
     let promotions: any[] = Array.isArray(rawReport.promotions) ? rawReport.promotions : [];
 
@@ -410,23 +432,30 @@ export const getReportData = async (eventId: string): Promise<ReportData> => {
         }));
     } else {
         // Even if promotions exist, ensure they have proper fields if API returns 0 earned
+        // And sanitize potential corrupted strings
         promotions = promotions.map(p => ({
             ...p,
+            sales: parseSafeFloat(p.sales),
+            clicks: parseSafeFloat(p.clicks),
             // Ensure sales volume is preserved if available
-            salesVolume: p.salesVolume || p.sales_volume || 0,
-            earned: typeof p.earned === 'number' ? p.earned : (p.earned_amount || 0)
+            salesVolume: parseSafeFloat(p.salesVolume || p.sales_volume),
+            earned: parseSafeFloat(p.earned || p.earned_amount)
         }));
     }
 
     return {
         event: event,
         kpis: {
-            grossSales: rawReport.kpis?.grossSales || 0,
-            ticketsSold: rawReport.kpis?.ticketsSold || 0,
-            pageViews: rawReport.kpis?.pageViews || 0,
-            promoterSales: rawReport.kpis?.promoterSales || 0
+            grossSales: parseSafeFloat(rawReport.kpis?.grossSales),
+            ticketsSold: parseSafeFloat(rawReport.kpis?.ticketsSold),
+            pageViews: parseSafeFloat(rawReport.kpis?.pageViews),
+            promoterSales: parseSafeFloat(rawReport.kpis?.promoterSales)
         },
-        salesByTicketType: Array.isArray(rawReport.salesByTicketType) ? rawReport.salesByTicketType : [],
+        salesByTicketType: Array.isArray(rawReport.salesByTicketType) ? rawReport.salesByTicketType.map((item: any) => ({
+            type: item.type,
+            quantitySold: parseSafeFloat(item.quantitySold),
+            grossSales: parseSafeFloat(item.grossSales)
+        })) : [],
         promotions: promotions
     };
 };
