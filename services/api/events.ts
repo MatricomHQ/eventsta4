@@ -1,5 +1,7 @@
 
 
+
+
 import { Event, Host, PromoStat, ReportData, Order, PromoCode, LeaderboardEntry, CheckoutCart, CompetitionForm, PayoutRequest, HostFinancials, SystemEmailTemplate, SystemEmailTrigger, SystemSettings, EmailDraft, EmailCampaign, TargetRole, Review, TicketOption } from '../../types';
 import { request, uploadFile, mapApiEventToFrontend, mapApiHostToFrontend, mapApiOrderToFrontend, parseImages, getUsersByIds, backfillHostNames } from './core';
 import * as emailService from '../emailService';
@@ -204,14 +206,14 @@ export const updateHostDetails = async (id: string, data: Partial<Host>) => {
 
 // --- TICKETING & ORDERS ---
 
-export const purchaseTicket = async (userId: string, eventId: string, cart: CheckoutCart, recipientUserId?: string, promoCode?: string, fees?: any): Promise<void> => {
+export const purchaseTicket = async (userId: string, eventId: string, cart: CheckoutCart, recipientUserId?: string, promoCode?: string, fees?: any): Promise<{ clientSecret: string, orderId: string }> => {
     console.debug(`[Promo Debug] 🛒 API purchaseTicket. User: ${userId}, Event: ${eventId}, Promo: ${promoCode || 'None'}`);
     
     // CRITICAL FIX: Sanitize recipientUserId. 
     // The backend crashes if it receives the string "null" instead of a null value.
     const cleanRecipientId = (recipientUserId === 'null' || recipientUserId === 'undefined') ? undefined : recipientUserId;
 
-    await request<any>('/orders/checkout', {
+    return await request<any>('/orders/checkout', {
         method: 'POST',
         body: JSON.stringify({ 
             event_id: eventId, 
@@ -221,6 +223,12 @@ export const purchaseTicket = async (userId: string, eventId: string, cart: Chec
             fees 
         })
     });
+};
+
+export const confirmOrderPayment = async (orderId: string): Promise<void> => {
+    console.info(`[ACTION] confirmOrderPayment: Forcing sync for Order ${orderId}`);
+    // This endpoint should be implemented by backend as described in fix_stripe_webhook.md
+    await request(`/orders/${orderId}/confirm`, { method: 'POST' });
 };
 
 export const getOrdersForEvent = async (eventId: string): Promise<Order[]> => {

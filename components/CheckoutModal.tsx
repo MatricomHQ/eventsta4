@@ -1,9 +1,17 @@
+
+
+
 import React, { useState, useMemo, useEffect } from 'react';
 import Modal from './Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { Event, CheckoutCart } from '../types';
 import * as api from '../services/api';
 import { CheckCircleIcon, ShieldCheckIcon, UsersIcon } from './Icons';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, PaymentElement, LinkAuthenticationElement, useStripe, useElements } from '@stripe/react-stripe-js';
+
+// Use the provided Sandbox Key
+const stripePromise = loadStripe('pk_test_51SLBunRAyVvF9E7vr7yuREQGiXex8blRmLwL40tUIfqbtDrSg6alTAjl5vtQXFuCLW8CzwOPHqt7L9qI1Uj20RVy00iPsBrVtO');
 
 interface CheckoutModalProps {
   isOpen: boolean;
@@ -16,7 +24,90 @@ interface CheckoutModalProps {
   promoOwnerName?: string; // NEW: To display "Supporting [Name]"
 }
 
-type View = 'checkout' | 'success' | 'loading' | 'error';
+type View = 'checkout' | 'payment_form' | 'success' | 'loading' | 'error';
+
+const PaymentForm: React.FC<{ 
+    total: number, 
+    userEmail: string,
+    onSuccess: () => void, 
+    onError: (msg: string) => void 
+}> = ({ total, userEmail, onSuccess, onError }) => {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [isLoading, setIsLoading] = useState(false);
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!stripe || !elements) return;
+
+        setIsLoading(true);
+
+        // Confirm payment
+        const { error, paymentIntent } = await stripe.confirmPayment({
+            elements,
+            confirmParams: {
+                return_url: window.location.href, // Redirect URL (not always used for 1-click)
+            },
+            redirect: 'if_required' 
+        });
+
+        if (error) {
+            console.error("Stripe Error:", error);
+            onError(error.message || "Payment failed. Please check your details.");
+            setIsLoading(false);
+        } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+            onSuccess();
+        } else {
+            // Unexpected status, maybe requiring action, treat as waiting/error for now
+            onError("Payment processing incomplete. Please try again.");
+            setIsLoading(false);
+        }
+    };
+
+    return (
+        <form onSubmit={handleSubmit} className="space-y-6 animate-fade-in p-6 md:p-8">
+            <h2 className="text-2xl font-bold text-white mb-4">Secure Payment</h2>
+            
+            {/* 
+                LinkAuthenticationElement:
+                Prefilled with the logged-in user's email to ensure the email field 
+                is populated by our system state, as required.
+            */}
+            <LinkAuthenticationElement 
+                id="link-authentication-element"
+                options={{ 
+                    defaultValues: { email: userEmail }
+                }} 
+            />
+            
+            <PaymentElement 
+                id="payment-element" 
+                options={{ 
+                    layout: "tabs",
+                    paymentMethodOrder: ['card', 'apple_pay', 'google_pay']
+                }} 
+            />
+            
+            <button 
+                type="submit"
+                disabled={isLoading || !stripe || !elements} 
+                className="w-full h-14 mt-4 bg-purple-600 hover:bg-purple-500 text-white text-lg font-bold rounded-xl shadow-lg shadow-purple-600/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                {isLoading ? (
+                    <div className="flex items-center gap-2">
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        <span>Processing...</span>
+                    </div>
+                ) : (
+                    <>
+                        <ShieldCheckIcon className="w-5 h-5" />
+                        <span>Pay ${total.toFixed(2)}</span>
+                    </>
+                )}
+            </button>
+        </form>
+    );
+};
 
 const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, event, recipientUserId, promoCode, appliedDiscountPercent, promoOwnerName }) => {
   const { user, refreshUser } = useAuth();
@@ -24,6 +115,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
   const [errorMessage, setErrorMessage] = useState('');
   const [platformDonation, setPlatformDonation] = useState(0);
   const [feesConfig, setFeesConfig] = useState({ percent: 5.9, fixed: 0.35 });
+  const [clientSecret, setClientSecret] = useState<string | null>(null);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null); // NEW: Track ID for confirmation
 
   // Internal Promo State to allow changes within modal
   const [activePromoCode, setActivePromoCode] = useState(promoCode || '');
@@ -44,6 +137,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
           setActiveDiscountPercent(appliedDiscountPercent || 0);
           setActiveOwnerName(promoOwnerName || '');
           setPromoMessage(null);
+          setClientSecret(null);
+          setCurrentOrderId(null);
 
           api.getSystemSettings().then(settings => {
               let percent = 5.9;
@@ -88,10 +183,6 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
               setPromoMessage({ type: 'success', text: msg });
           } else {
               setPromoMessage({ type: 'error', text: "Invalid Code" });
-              // Reset active state on invalid code? Or keep previous? 
-              // Typically invalid entry shouldn't clear previous valid state unless explicitly cleared,
-              // but for safety let's not apply invalid codes.
-              // However, keep the input text so user can fix it.
           }
       } catch (e) {
           setPromoMessage({ type: 'error', text: "Validation Failed" });
@@ -179,30 +270,51 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
       }
   }, [isOpen, subtotal, discount, view]);
 
-  const handlePayment = async () => {
+  const handleInitiatePayment = async () => {
     if (!user) return;
     setView('loading');
     setErrorMessage('');
+    
     try {
-      await api.purchaseTicket(
+      // Create Order + PaymentIntent on Backend
+      const response = await api.purchaseTicket(
           user.id, 
           event.id, 
           cart, 
           recipientUserId, 
           activePromoCode, // Use the active/validated code
           { mandatory: mandatoryFees, donation: platformDonation }
-        );
-        
-      // CRITICAL: Refresh user data to retrieve the newly purchased tickets from the backend
-      await refreshUser();
+      );
       
-      setView('success');
+      if (response && response.clientSecret) {
+          setClientSecret(response.clientSecret);
+          setCurrentOrderId(response.orderId); // Capture Order ID for manual confirmation
+          setView('payment_form');
+      } else {
+          throw new Error("Failed to initialize payment gateway.");
+      }
+      
     } catch (error: any) {
-      console.error("Payment failed", error);
-      setErrorMessage(error.message || "An unexpected error occurred during payment.");
+      console.error("Payment init failed", error);
+      setErrorMessage(error.message || "An unexpected error occurred.");
       setView('error');
     }
   };
+
+  const handlePaymentSuccess = async () => {
+      // Payment confirmed by Stripe Client Side
+      try {
+          // Critical: Call Manual Confirmation Endpoint to bypass blocked webhooks
+          if (currentOrderId) {
+              await api.confirmOrderPayment(currentOrderId);
+          }
+          await refreshUser(); // Fetch newly purchased tickets
+          setView('success');
+      } catch (e) {
+          console.warn("User refresh or confirmation failed after payment", e);
+          setView('success'); // Still show success as payment went through
+      }
+  }
 
   const handleClose = () => {
       onClose();
@@ -210,12 +322,9 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
       setTimeout(() => {
           setView('checkout');
           setErrorMessage('');
+          setClientSecret(null);
+          setCurrentOrderId(null);
       }, 300);
-  }
-
-  const handleRetry = () => {
-      setView('checkout');
-      setErrorMessage('');
   }
 
   // Helper to determine what text to show for attribution
@@ -227,10 +336,15 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
 
   return (
     <Modal isOpen={isOpen} onClose={handleClose}>
-        <div className="w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl shadow-purple-500/10 overflow-hidden">
+        {/* 
+            Container constraints:
+            max-h-[calc(100vh-64px)] ensures top and bottom margins (about 32px each) are always visible 
+            so the modal doesn't touch screen edges vertically.
+        */}
+        <div className="w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl shadow-purple-500/10 overflow-hidden flex flex-col max-h-[calc(100vh-64px)] min-h-[400px]">
             {view === 'checkout' && (
-                <div>
-                    <div className="p-8">
+                <div className="flex flex-col h-full overflow-hidden">
+                    <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar flex-grow">
                         <h2 className="text-2xl font-bold text-white mb-6">Checkout Summary</h2>
                         <div className="space-y-4 mb-8 border-b border-neutral-800 pb-6">
                             {items.map(item => (
@@ -332,29 +446,57 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
                             <span className="text-3xl font-bold text-white">${finalTotal.toFixed(2)}</span>
                         </div>
                     </div>
-                     <button onClick={handlePayment} className="w-full h-16 px-6 bg-purple-600 text-white text-lg font-semibold hover:bg-purple-500 transition-all duration-300 flex items-center justify-center space-x-3">
-                        <ShieldCheckIcon className="w-5 h-5" />
-                        <span>Pay ${finalTotal.toFixed(2)}</span>
-                    </button>
-                </div>
-            )}
-             {view === 'loading' && (
-                 <div>
-                    <div className="p-8 h-64 flex items-center justify-center">
-                        <p className="text-neutral-300">Processing payment...</p>
+                    
+                    <div className="flex-shrink-0 bg-neutral-900 border-t border-neutral-800">
+                         <button onClick={handleInitiatePayment} className="w-full h-16 md:h-20 px-6 bg-purple-600 text-white text-lg font-semibold hover:bg-purple-500 transition-all duration-300 flex items-center justify-center space-x-3">
+                            <ShieldCheckIcon className="w-5 h-5" />
+                            <span>Proceed to Payment</span>
+                        </button>
                     </div>
-                     <button disabled className="w-full h-16 px-6 bg-purple-700 text-white text-lg font-semibold transition-all duration-300 flex items-center justify-center space-x-3">
-                        <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>Processing...</span>
-                    </button>
                 </div>
             )}
+
+            {view === 'loading' && (
+                 <div className="flex flex-col justify-center items-center h-full flex-grow p-8">
+                    <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+                    <p className="text-neutral-300 text-lg font-medium">Securing Checkout...</p>
+                    <p className="text-neutral-500 text-sm mt-2">Preparing secure payment channel.</p>
+                </div>
+            )}
+
+            {view === 'payment_form' && clientSecret && (
+                <div className="flex flex-col h-full overflow-hidden">
+                    {/* The Stripe Elements container must scroll independently */}
+                    <div className="overflow-y-auto custom-scrollbar flex-grow bg-neutral-900">
+                        <Elements 
+                            stripe={stripePromise} 
+                            options={{ 
+                                clientSecret, 
+                                appearance: { 
+                                    theme: 'night', 
+                                    variables: { 
+                                        colorPrimary: '#a855f7', 
+                                        colorBackground: '#171717', 
+                                        colorText: '#ffffff', 
+                                        borderRadius: '12px' 
+                                    } 
+                                } 
+                            }}
+                        >
+                            <PaymentForm 
+                                total={finalTotal} 
+                                userEmail={user?.email || ''} // Pass authenticated user email
+                                onSuccess={handlePaymentSuccess} 
+                                onError={(msg) => { setErrorMessage(msg); setView('error'); }} 
+                            />
+                        </Elements>
+                    </div>
+                </div>
+            )}
+
             {view === 'error' && (
-                <div>
-                    <div className="p-12 text-center">
+                <div className="flex flex-col h-full">
+                    <div className="p-12 text-center flex-grow flex flex-col justify-center items-center overflow-y-auto">
                         <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
                             <span className="text-4xl">⚠️</span>
                         </div>
@@ -363,27 +505,29 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
                             {errorMessage}
                         </p>
                     </div>
-                     <div className="flex">
+                     <div className="flex flex-shrink-0">
                         <button onClick={handleClose} className="w-1/2 h-16 px-6 bg-neutral-800 text-neutral-300 font-semibold hover:bg-neutral-700 transition-all border-t border-neutral-700">
                             Cancel
                         </button>
-                        <button onClick={handleRetry} className="w-1/2 h-16 px-6 bg-purple-600 text-white font-semibold hover:bg-purple-500 transition-all">
+                        <button onClick={() => setView('checkout')} className="w-1/2 h-16 px-6 bg-purple-600 text-white font-semibold hover:bg-purple-500 transition-all">
                             Try Again
                         </button>
                      </div>
                 </div>
             )}
+
             {view === 'success' && (
-                <div>
-                    <div className="p-12 text-center">
-                        <div className="w-20 h-20 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <CheckCircleIcon className="w-12 h-12 text-green-400" />
+                <div className="animate-in zoom-in duration-300 flex flex-col h-full">
+                    <div className="p-12 text-center flex-grow flex flex-col justify-center items-center overflow-y-auto">
+                        <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6 relative">
+                            <CheckCircleIcon className="w-16 h-16 text-green-400 absolute" />
+                            <div className="absolute inset-0 rounded-full border-4 border-green-500/30 animate-ping"></div>
                         </div>
-                        <h2 className="text-3xl font-bold text-white mb-3">Payment Successful!</h2>
-                        <p className="text-neutral-400 mb-8">Your tickets are confirmed. See you there!</p>
+                        <h2 className="text-3xl font-black text-white mb-2 tracking-tight">Ticket Confirmed!</h2>
+                        <p className="text-neutral-400 mb-8 text-lg">Your order was successful. You will receive an email confirmation shortly.</p>
                     </div>
-                     <button onClick={handleClose} className="w-full h-16 px-6 bg-purple-600 text-white text-lg font-semibold hover:bg-purple-500 transition-all duration-300">
-                        Done
+                     <button onClick={handleClose} className="w-full h-16 px-6 bg-neutral-800 text-white text-lg font-semibold hover:bg-neutral-700 transition-all duration-300 border-t border-neutral-700 flex-shrink-0">
+                        View Tickets
                     </button>
                 </div>
             )}
