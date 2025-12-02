@@ -4,10 +4,23 @@ import { v4 as uuidv4 } from 'uuid';
 import { createEventSlug } from '../../utils/url';
 import { User, Event, Host, PurchasedTicket, PromoStat, Payout, TicketOption, CompetitionForm, Competition, Order, AddOn } from '../../types';
 
-// Update Base URL to use HTTPS as requested
 export const getBaseUrl = () => {
-    // NEW: Updated base URL to remove port and add API versioning prefix.
-    return 'https://eventsta.com/api/v1';
+    // Check if the code is running in a browser environment
+    if (typeof window !== 'undefined') {
+        const hostname = window.location.hostname;
+
+        // If the hostname is NOT 'eventsta.com', we assume it's a development environment.
+        // This covers localhost, 127.0.0.1, and any cloud-based dev server (like *.github.dev).
+        if (hostname !== 'eventsta.com') {
+            // In development, ALWAYS point to the live production API.
+            console.log(`[API] Development mode detected on host: ${hostname}. Using production API endpoint.`);
+            return 'https://eventsta.com/api/v1';
+        }
+    }
+
+    // In production (when served from eventsta.com), use a relative path.
+    // This is the most robust option for the deployed site.
+    return '/api/v1';
 };
 
 export const API_URL = getBaseUrl();
