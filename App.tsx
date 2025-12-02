@@ -22,7 +22,7 @@ import { ShieldIcon } from './components/Icons';
 const SystemAdmin = React.lazy(() => import('./pages/SystemAdmin'));
 
 // AppContent uses useLocation to determine the background style
-const AppContent: React.FC = () => {
+export const AppContent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate(); // Use hook inside component within Router context
   const { login, user, refreshUser, isLoading } = useAuth();
