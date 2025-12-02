@@ -6,7 +6,8 @@ import { User, Event, Host, PurchasedTicket, PromoStat, Payout, TicketOption, Co
 
 // Update Base URL to use HTTPS as requested
 export const getBaseUrl = () => {
-    return 'https://api.eventsta.com:8181/eventsta';
+    // NEW: Updated base URL to remove port and add API versioning prefix.
+    return 'https://eventsta.com/api/v1';
 };
 
 export const API_URL = getBaseUrl();
@@ -139,12 +140,9 @@ export const uploadFile = async (file: File | Blob): Promise<string> => {
         body: formData
     });
 
-    let fixedUrl = res.url;
-    if (fixedUrl.startsWith('https://api.eventsta.com/') && !fixedUrl.includes(':8181')) {
-        fixedUrl = fixedUrl.replace('https://api.eventsta.com/', 'https://api.eventsta.com:8181/');
-    }
-
-    return fixedUrl;
+    // REMOVED: Obsolete URL fix for port 8181. Backend is now expected
+    // to return the full, correct URL for the uploaded resource.
+    return res.url;
 };
 
 // --- MAPPERS ---
