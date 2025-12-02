@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+
+import React, { useState, useEffect } from 'react';
 import { Event as EventType } from '../../types';
 import CompetitionsTab from './CompetitionsTab';
 import PromoCodesTab from './PromoCodesTab';
@@ -6,6 +7,14 @@ import FormsTab from './FormsTab';
 
 const MarketingTab: React.FC<{ event: EventType, onEventUpdate: () => void }> = ({ event, onEventUpdate }) => {
     const [activeSubTab, setActiveSubTab] = useState<'competitions' | 'promocodes' | 'forms'>('competitions');
+
+    // If the current event is a fundraiser, and the user somehow landed on the 'promocodes' tab,
+    // redirect them to the first available tab.
+    useEffect(() => {
+        if (event.type === 'fundraiser' && activeSubTab === 'promocodes') {
+            setActiveSubTab('competitions');
+        }
+    }, [event.type, activeSubTab]);
 
     return (
         <div className="space-y-6">
@@ -21,14 +30,16 @@ const MarketingTab: React.FC<{ event: EventType, onEventUpdate: () => void }> = 
                     >
                         Competitions
                     </button>
-                    <button 
-                        onClick={() => setActiveSubTab('promocodes')} 
-                        className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-all ${
-                            activeSubTab === 'promocodes' ? 'border-purple-500 text-white' : 'border-transparent text-neutral-400 hover:text-white'
-                        }`}
-                    >
-                        Promo Codes
-                    </button>
+                    {event.type !== 'fundraiser' && (
+                        <button 
+                            onClick={() => setActiveSubTab('promocodes')} 
+                            className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-all ${
+                                activeSubTab === 'promocodes' ? 'border-purple-500 text-white' : 'border-transparent text-neutral-400 hover:text-white'
+                            }`}
+                        >
+                            Promo Codes
+                        </button>
+                    )}
                     <button 
                         onClick={() => setActiveSubTab('forms')} 
                         className={`whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-all ${
@@ -46,7 +57,7 @@ const MarketingTab: React.FC<{ event: EventType, onEventUpdate: () => void }> = 
                        <CompetitionsTab event={event} onEventUpdate={onEventUpdate} />
                     </div>
                 )}
-                {activeSubTab === 'promocodes' && (
+                {activeSubTab === 'promocodes' && event.type !== 'fundraiser' && (
                     <div className="animate-fade-in">
                         <PromoCodesTab event={event} />
                     </div>

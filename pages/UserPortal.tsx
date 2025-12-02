@@ -75,26 +75,36 @@ const UserPortal: React.FC = () => {
 
   // Effect to automatically re-verify pending orders on page load
   useEffect(() => {
+    // Only run if we have orders and haven't checked yet
     if (orders.length > 0 && !hasInitiatedPendingCheck.current) {
-        hasInitiatedPendingCheck.current = true;
+        
         const pendingOrders = orders.filter(o => o.status === 'Pending');
 
         if (pendingOrders.length > 0) {
-            const verifyAndRefetch = async () => {
-                // Short delay to allow UI to render pending state
-                await new Promise(resolve => setTimeout(resolve, 1000));
+            console.log(`Found ${pendingOrders.length} pending orders. Verifying with Stripe...`);
+            hasInitiatedPendingCheck.current = true;
 
-                const confirmationPromises = pendingOrders.map(order => 
-                    api.confirmOrderPayment(order.orderId).catch(err => {
+            const verifyAndRefetch = async () => {
+                // 1. Force confirm each pending order
+                const confirmationPromises = pendingOrders.map(async (order) => {
+                    try {
+                        console.log(`Verifying Order: ${order.orderId}`);
+                        // This forces the backend to call Stripe
+                        await api.confirmOrderPayment(order.orderId); 
+                        return true;
+                    } catch (err) {
                         console.warn(`Failed to re-verify order ${order.orderId}:`, err);
-                    })
-                );
+                        return false;
+                    }
+                });
 
                 await Promise.allSettled(confirmationPromises);
                 
-                // Fetch updated list silently in the background
+                // 2. Fetch updated list immediately after checks complete
+                console.log("Verification complete. Refreshing order list...");
                 fetchOrderData(true);
             };
+
             verifyAndRefetch();
         }
     }

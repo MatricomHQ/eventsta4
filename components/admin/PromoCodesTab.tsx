@@ -35,18 +35,16 @@ const PromoCodesTab: React.FC<{ event: EventType }> = ({ event }) => {
 
     const handleDeleteCode = async (codeId: string) => {
         if (!user) return;
-        const originalCodes = codes;
-        setCodes(prev => prev.filter(c => c.id !== codeId));
         try {
             const result = await api.deletePromoCode(user.id, event.id, codeId);
-            if (!result.success) {
-                setCodes(originalCodes);
+            if (result.success) {
+                fetchCodes(); // Re-fetch the codes from the server to update the list
+            } else {
                 alert("Failed to delete promo code.");
             }
         } catch (error) {
             console.error(error);
-            setCodes(originalCodes);
-            alert("Failed to delete promo code.");
+            alert("An error occurred while deleting the promo code.");
         }
     };
 
@@ -79,7 +77,7 @@ const PromoCodesTab: React.FC<{ event: EventType }> = ({ event }) => {
                                     <tr key={code.id} className="border-b border-neutral-800">
                                         <td className="px-6 py-4 font-mono font-medium text-white">{code.code}</td>
                                         <td className="px-6 py-4 text-center">{code.discountPercent}%</td>
-                                        <td className="px-6 py-4 text-center">{code.uses} / {code.maxUses ?? '∞'}</td>
+                                        <td className="px-6 py-4 text-center">{code.uses ?? 0} / {code.maxUses ?? '∞'}</td>
                                         <td className="px-6 py-4 text-center">
                                             <span className={`px-2 py-1 text-xs font-medium rounded-full ${code.isActive ? 'bg-green-500/10 text-green-400' : 'bg-neutral-700 text-neutral-400'}`}>
                                                 {code.isActive ? 'Active' : 'Inactive'}
@@ -192,7 +190,7 @@ const CreatePromoCodeModal: React.FC<{
                         {!isFundraiser && (
                              <div>
                                 <label className="block text-sm font-medium text-neutral-300 mb-2">Discount (%)</label>
-                                <input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} min="1" max="100" className="w-full h-12 px-4 bg-neutral-800 border border-neutral-700 rounded-lg text-white" required />
+                                <input type="number" value={discount} onChange={e => setDiscount(Number(e.target.value))} min="0" max="100" className="w-full h-12 px-4 bg-neutral-800 border border-neutral-700 rounded-lg text-white" required />
                             </div>
                         )}
                          <div>

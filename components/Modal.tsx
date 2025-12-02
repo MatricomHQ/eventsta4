@@ -7,13 +7,22 @@ interface ModalProps {
   onClose: () => void;
   children: ReactNode;
   showCloseButton?: boolean;
+  preventCloseOnOutsideClick?: boolean;
 }
 
-const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, showCloseButton = true }) => {
+const Modal: React.FC<ModalProps> = ({ 
+    isOpen, 
+    onClose, 
+    children, 
+    showCloseButton = true, 
+    preventCloseOnOutsideClick = false 
+}) => {
   useEffect(() => {
     const handleEsc = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose();
+        if (!preventCloseOnOutsideClick) {
+            onClose();
+        }
       }
     };
     window.addEventListener('keydown', handleEsc);
@@ -21,9 +30,15 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, showCloseButto
     return () => {
       window.removeEventListener('keydown', handleEsc);
     };
-  }, [onClose]);
+  }, [onClose, preventCloseOnOutsideClick]);
 
   if (!isOpen) return null;
+
+  const handleBackdropClick = () => {
+      if (!preventCloseOnOutsideClick) {
+          onClose();
+      }
+  };
 
   return (
     <div
@@ -32,16 +47,17 @@ const Modal: React.FC<ModalProps> = ({ isOpen, onClose, children, showCloseButto
     >
       <div
         className="fixed inset-0 bg-black/80 backdrop-blur-sm"
-        onClick={onClose}
+        onClick={handleBackdropClick}
       ></div>
       <div className="relative z-10 w-full max-w-full flex justify-center my-4 md:my-8 pointer-events-none">
-        <div className="pointer-events-auto w-full max-w-fit">
+        <div className="pointer-events-auto w-full max-w-fit relative">
             {showCloseButton && (
             <button
                 onClick={onClose}
-                className="absolute top-0 right-0 md:-right-10 md:top-0 text-neutral-400 hover:text-white transition-colors z-50 p-2 bg-black/50 rounded-full md:bg-transparent"
+                className="absolute top-4 right-4 text-neutral-400 hover:text-white transition-colors z-50 p-2 rounded-full hover:bg-neutral-800 bg-black/20 backdrop-blur-md"
+                aria-label="Close"
             >
-                <XIcon className="w-6 h-6" />
+                <XIcon className="w-5 h-5" />
             </button>
             )}
             {children}

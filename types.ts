@@ -1,5 +1,3 @@
-
-
 // FIX: Removed self-import which caused declaration conflicts with local type definitions.
 
 export interface Review {
@@ -250,7 +248,7 @@ export interface Order {
     purchaseDate: string;
     items: OrderLineItem[];
     totalPaid: number;
-    status: 'Completed' | 'Refunded';
+    status: 'Completed' | 'Refunded' | 'Pending';
     promoCode?: string;
     recipientUserId?: string;
     recipientUserName?: string; // NEW: The resolved name of the promoter/affiliate

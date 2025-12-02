@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Modal from './Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ShieldIcon, GoogleIcon, ArrowLeftIcon, MailIcon, XIcon, PlayCircleIcon } from './Icons';
+import { GoogleIcon, ArrowLeftIcon, MailIcon, XIcon } from './Icons';
 import { User } from '../types';
 import * as api from '../services/api';
 import { useGoogleLogin } from '@react-oauth/google';
@@ -260,31 +260,6 @@ const SignInModal: React.FC<SignInModalProps> = ({ isOpen, onClose, context = 'd
       }
   };
 
-  const handleAdminLogin = async () => {
-      try {
-          const user = await login('admin');
-          onClose();
-          if (user) {
-              navigate('/system-admin');
-          }
-      } catch (error) {
-          setError("Admin login failed.");
-      }
-  }
-
-  const handleDemoLogin = async () => {
-      try {
-          const user = await login('demo');
-          onClose();
-          if (user && context === 'default') {
-              const destination = await determineRedirectPath(user, location.pathname);
-              if (destination) navigate(destination);
-          }
-      } catch (error) {
-          setError("Demo login failed.");
-      }
-  }
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} showCloseButton={false}>
       <div className="relative w-full max-w-md bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl shadow-purple-500/10">
@@ -317,15 +292,6 @@ const SignInModal: React.FC<SignInModalProps> = ({ isOpen, onClose, context = 'd
                             Continue with Google
                         </button>
 
-                        <button
-                            onClick={handleDemoLogin}
-                            disabled={isLoading}
-                            className="w-full h-12 px-6 bg-neutral-800 text-white border border-neutral-700 rounded-full flex items-center justify-center text-sm font-bold hover:bg-neutral-700 transition-colors disabled:opacity-50 group"
-                        >
-                            <PlayCircleIcon className="w-5 h-5 mr-3 text-purple-400 group-hover:text-purple-300" />
-                            Try Demo Account
-                        </button>
-
                         <div className="text-center pt-2">
                             <button 
                                 onClick={() => setView('email')}
@@ -335,19 +301,6 @@ const SignInModal: React.FC<SignInModalProps> = ({ isOpen, onClose, context = 'd
                             </button>
                         </div>
                     </div>
-
-                    {!isApplication && (
-                        <div className="border-t border-neutral-800 mt-8 pt-6 w-full text-center">
-                            <button
-                                onClick={handleAdminLogin}
-                                disabled={isLoading}
-                                className="text-neutral-600 text-xs font-medium hover:text-purple-400 transition-colors flex items-center justify-center gap-2 mx-auto"
-                            >
-                                <ShieldIcon className="w-3 h-3" />
-                                System Admin Login
-                            </button>
-                        </div>
-                    )}
                 </>
             )}
 

@@ -1,83 +1,48 @@
-
-# 🚨 CRITICAL BACKEND DATA INTEGRITY FIXES
+# Backend API Changes: Support for Ordered Inventory
 
 ## Overview
-The frontend is receiving corrupted or incorrectly calculated data in several key endpoints. These issues affect financial reporting and analytics. Please implement the following fixes immediately.
+The frontend now supports drag-and-drop reordering for tickets and add-ons within the Event Admin panel. To persist this custom order, the backend needs to store and serve the inventory items in their specified sequence.
 
-## 1. Commission Calculation Logic (Ledger)
-**Severity: High**
-**Issue:** Commission entries in the ledger are returning raw values (e.g., `100` for $1.00) or are calculated incorrectly.
-**Endpoint:** `GET /users/:userId/ledger` (and internal commission calculation logic)
+## Required Changes
 
-**Current Behavior:**
-*   A $10.00 ticket with 10% commission results in a ledger entry of `amount: 100`.
-*   The frontend displays this as `$100.00` because the platform standard is to treat API amounts as Float/Dollars (e.g. `grossSales: 70.94`).
+### 1. Database Schema Update
+**Table:** `inventory` (or whichever table stores tickets and add-ons)
+**Action:** Add a new column to store the display order.
 
-**Required Fix:**
-*   Ensure commission calculation logic divides by 100 if working with percentages.
-    *   Formula: `Commission = TicketPrice * (CommissionRate / 100)`
-*   Ensure the `amount` stored in the `Ledger` table is consistent with other monetary values in the system (i.e., if `grossSales` is Dollars, `commission` must be Dollars).
-*   **Backfill:** Run a script to fix existing `COMMISSION` entries that are 100x their correct value.
+```sql
+-- Example for PostgreSQL
+ALTER TABLE inventory ADD COLUMN display_order INTEGER DEFAULT 0;
+```
+*   **Column Name:** `display_order`, `position`, `sort_order`, etc.
+*   **Type:** `INTEGER`
+*   **Default:** `0` or `NULL`
 
-## 2. Report Data Corruption (Stringified Promises)
-**Severity: High**
-**Issue:** The `promoterSales` and `salesVolume` fields in the report endpoint return the string `"[object Promise][object Promise]..."`.
-**Endpoint:** `GET /events/:id/report`
+### 2. Modify Event Update Endpoint (`PATCH /events/:id`)
+When the backend receives an `inventory` array in the request body, it now represents the complete, ordered list of tickets and add-ons for that event. The backend must process this array to reflect the new order.
 
-**Current Behavior:**
-```json
-{
-  "kpis": {
-    "promoterSales": "00[object Promise][object Promise][object Promise]"
-  },
-  "promotions": [
-    { "salesVolume": "0[object Promise][object Promise]..." }
-  ]
-}
+**Logic:**
+1.  Begin a transaction.
+2.  Iterate through the incoming `inventory` array. For each item at index `i`:
+    *   **If the item has an `id`:**
+        *   Execute an `UPDATE inventory SET ..., display_order = i WHERE id = item.id;`
+    *   **If the item does NOT have an `id`:**
+        *   Execute an `INSERT INTO inventory (..., display_order) VALUES (..., i);`
+3.  **Handle Deletions:**
+    *   Get a list of all `id`s from the incoming `inventory` array.
+    *   `DELETE FROM inventory WHERE event_id = :eventId AND id NOT IN (:incoming_ids);`
+4.  Commit the transaction.
+
+This "sync" approach ensures that added, removed, and reordered items are all handled correctly.
+
+### 3. Modify Event Fetch Endpoint (`GET /events/:id`)
+When fetching inventory items for an event, they must be returned in the correct order.
+
+**Logic:**
+*   Modify the SQL query to include an `ORDER BY` clause.
+
+```sql
+-- Example
+SELECT * FROM inventory WHERE event_id = $1 ORDER BY display_order ASC;
 ```
 
-**Diagnosis:**
-The backend code likely looks like this:
-```javascript
-// BAD CODE EXAMPLE
-const promoterSales = 0 + promotions.map(async p => await getSales(p)); // Result: "0[object Promise]..."
-```
-You are concatenating an array of Promises to a number or string instead of resolving them.
-
-**Required Fix:**
-*   Use `Promise.all()` to resolve async operations before aggregating.
-*   Example:
-    ```javascript
-    const salesPromises = promotions.map(p => getSales(p));
-    const salesResults = await Promise.all(salesPromises);
-    const totalPromoterSales = salesResults.reduce((a, b) => a + b, 0);
-    ```
-
-## 3. Page Views Accuracy
-**Severity: Medium**
-**Issue:** Page views are reported as exactly `50` in logs, regardless of traffic. This indicates a hardcoded value or broken tracking.
-**Endpoint:** `GET /events/:id/report`
-
-**Required Fix:**
-*   Ensure the page view counter is actually incrementing on `GET /events/:id` (public view).
-*   Remove any hardcoded mock data for `pageViews`.
-
-## 4. Transaction History Types
-**Severity: Medium**
-**Issue:** Inconsistent number types in `GET /users/:userId/ledger`.
-*   Some entries might be integers (cents?) while others are floats.
-*   Standardize ALL monetary return values to Floats (representing Dollars) for consistency with the rest of the API (e.g. `70.94`).
-
-## Testing Instructions
-1.  **Commission Test:**
-    *   Create an event with ticket price $10 and commission 10%.
-    *   Buy a ticket via a promoter link.
-    *   Check `GET /users/:promoterId/ledger`.
-    *   **Expect:** `amount: 1.0` (or `1.00`).
-    *   **Fail:** `amount: 100` or `amount: 10`.
-
-2.  **Report Test:**
-    *   Call `GET /events/:id/report`.
-    *   Check `kpis.promoterSales`.
-    *   **Expect:** A Number (e.g. `150.50` or `0`).
-    *   **Fail:** A String containing "Promise" or "object".
+This ensures that both the public Event Details page and the Event Admin panel will display tickets and add-ons in the user-defined order.

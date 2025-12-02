@@ -1,4 +1,3 @@
-
 import { Order, User, PayoutRequest, SystemEmailTrigger } from '../types';
 import * as api from './api';
 
@@ -44,7 +43,7 @@ const sendTemplateEmail = async (
         });
 
         console.group(`📧 Sending System Email: [${trigger}] ${subject}`);
-        console.log(`From: ${settings.platformName} <noreply@${settings.platformName.toLowerCase().replace(/\s+/g, '')}.com>`);
+        console.log(`From: ${settings.platformName} <noreply@eventsta.com>`);
         console.log(`To: ${recipientEmail}`);
         console.log('%c[HTML Content]', LOG_STYLE);
         console.log(body);

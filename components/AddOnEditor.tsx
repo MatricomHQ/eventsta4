@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { AddOn } from '../types';
 import { TrashIcon, PlusIcon, GripVerticalIcon, ChevronDownIcon } from './Icons';
@@ -22,10 +22,21 @@ const EditableAddOnItem: React.FC<{
     onUpdate: (key: string, field: keyof AddOn, value: any) => void,
     onDelete: () => void,
     isFundraiser: boolean,
-}> = ({ addOn, uiKey, isExpanded, onToggle, onUpdate, onDelete, isFundraiser }) => {
+    index: number;
+    onDragStart: (index: number) => void;
+    onDragEnter: (index: number) => void;
+    onDragEnd: () => void;
+    isDragging: boolean;
+}> = ({ addOn, uiKey, isExpanded, onToggle, onUpdate, onDelete, isFundraiser, index, onDragStart, onDragEnter, onDragEnd, isDragging }) => {
     
     return (
-        <div className={`bg-neutral-900 border rounded-2xl transition-all duration-300 group ${isExpanded ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-neutral-800 hover:border-neutral-700'}`}>
+        <div 
+            draggable
+            onDragStart={() => onDragStart(index)}
+            onDragEnter={() => onDragEnter(index)}
+            onDragEnd={onDragEnd}
+            onDragOver={(e) => e.preventDefault()}
+            className={`bg-neutral-900 border rounded-2xl transition-all duration-300 group ${isExpanded ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-neutral-800 hover:border-neutral-700'} ${isDragging ? 'opacity-50 scale-105 shadow-2xl shadow-purple-500/20' : 'opacity-100'}`}>
             {/* --- Summary View (Header) --- */}
             <div 
                 className="flex items-center p-4 cursor-pointer"
@@ -88,6 +99,9 @@ const EditableAddOnItem: React.FC<{
 const AddOnEditor: React.FC<AddOnEditorProps> = ({ addOns, onAddOnsChange, isFundraiser = false }) => {
     const [wrappers, setWrappers] = useState<Wrapper[]>([]);
     const [expandedUiKey, setExpandedUiKey] = useState<string | null>(null);
+    const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+    const dragItem = useRef<number | null>(null);
+    const dragOverItem = useRef<number | null>(null);
 
     useEffect(() => {
         setWrappers(currentWrappers => {
@@ -109,6 +123,27 @@ const AddOnEditor: React.FC<AddOnEditorProps> = ({ addOns, onAddOnsChange, isFun
     const updateParent = (newWrappers: Wrapper[]) => {
         const domainAddOns = newWrappers.map(w => w.data);
         onAddOnsChange(domainAddOns);
+    };
+
+    const handleDragStart = (index: number) => {
+        dragItem.current = index;
+        setDraggingIndex(index);
+    };
+
+    const handleDragEnter = (index: number) => {
+        dragOverItem.current = index;
+    };
+    
+    const handleDragEnd = () => {
+        if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+            const newWrappers = [...wrappers];
+            const draggedItemContent = newWrappers.splice(dragItem.current, 1)[0];
+            newWrappers.splice(dragOverItem.current, 0, draggedItemContent);
+            updateParent(newWrappers);
+        }
+        setDraggingIndex(null);
+        dragItem.current = null;
+        dragOverItem.current = null;
     };
 
     const handleAddOnChange = (key: string, field: keyof AddOn, value: any) => {
@@ -142,7 +177,7 @@ const AddOnEditor: React.FC<AddOnEditorProps> = ({ addOns, onAddOnsChange, isFun
 
     return (
         <div className="space-y-4">
-            {wrappers.map((wrapper) => (
+            {wrappers.map((wrapper, index) => (
                 <EditableAddOnItem
                     key={wrapper.uiKey}
                     addOn={wrapper.data}
@@ -152,6 +187,11 @@ const AddOnEditor: React.FC<AddOnEditorProps> = ({ addOns, onAddOnsChange, isFun
                     onUpdate={handleAddOnChange}
                     onDelete={() => removeAddOn(wrapper.uiKey)}
                     isFundraiser={isFundraiser}
+                    index={index}
+                    onDragStart={handleDragStart}
+                    onDragEnter={handleDragEnter}
+                    onDragEnd={handleDragEnd}
+                    isDragging={draggingIndex === index}
                 />
             ))}
             

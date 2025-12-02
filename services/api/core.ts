@@ -285,25 +285,32 @@ export function mapApiEventToFrontend(apiEvent: any): Event {
         }
         if (inv.id) uniqueIds.add(inv.id);
         
+        // CRITICAL FIX: Filter out malformed items that missing essential fields
+        // This prevents frontend crashes when iterating over corrupted data (e.g. { category: "TICKET" })
+        if (!inv.type && typeof inv.price !== 'number' && !inv.id) {
+            console.warn(`[DATA ERROR] Skipping malformed inventory item:`, inv);
+            continue;
+        }
+
         if (inv.category === 'ADD_ON') {
             addOns.push({
                 id: inv.id,
-                name: inv.type, // Map 'type' back to 'name' for AddOn
-                price: inv.price,
-                description: inv.description,
-                minimumDonation: inv.min_donation,
+                name: inv.type || 'Unknown Add-on', // Map 'type' back to 'name' for AddOn
+                price: typeof inv.price === 'number' ? inv.price : 0,
+                description: inv.description || '',
+                minimumDonation: typeof inv.min_donation === 'number' ? inv.min_donation : 0,
                 category: 'ADD_ON'
             });
         } else {
             // Default to ticket if category is TICKET or missing (legacy)
             tickets.push({
                 id: inv.id,
-                type: inv.type,
-                price: inv.price,
-                quantity: inv.quantity_total,
-                sold: inv.quantity_sold,
-                minimumDonation: inv.min_donation,
-                description: inv.description,
+                type: inv.type || 'Unknown Ticket',
+                price: typeof inv.price === 'number' ? inv.price : 0,
+                quantity: typeof inv.quantity_total === 'number' ? inv.quantity_total : 0,
+                sold: typeof inv.quantity_sold === 'number' ? inv.quantity_sold : 0,
+                minimumDonation: typeof inv.min_donation === 'number' ? inv.min_donation : 0,
+                description: inv.description || '',
                 category: 'TICKET'
             });
         }

@@ -1,7 +1,6 @@
 
-
-
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Modal from './Modal';
 import { useAuth } from '../contexts/AuthContext';
 import { Event, CheckoutCart } from '../types';
@@ -35,6 +34,12 @@ const PaymentForm: React.FC<{
     const stripe = useStripe();
     const elements = useElements();
     const [isLoading, setIsLoading] = useState(false);
+    
+    // Track element readiness
+    const [isLinkReady, setIsLinkReady] = useState(false);
+    const [isPaymentReady, setIsPaymentReady] = useState(false);
+
+    const isFormReady = stripe && elements && isLinkReady && isPaymentReady;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -42,7 +47,8 @@ const PaymentForm: React.FC<{
 
         setIsLoading(true);
 
-        // Confirm payment
+        // Step 2: Process Payment on Client
+        console.log("[Checkout] Processing payment with Stripe...");
         const { error, paymentIntent } = await stripe.confirmPayment({
             elements,
             confirmParams: {
@@ -52,10 +58,11 @@ const PaymentForm: React.FC<{
         });
 
         if (error) {
-            console.error("Stripe Error:", error);
+            console.error("[Checkout] Stripe Error:", error);
             onError(error.message || "Payment failed. Please check your details.");
             setIsLoading(false);
         } else if (paymentIntent && paymentIntent.status === 'succeeded') {
+            console.log("[Checkout] Payment Succeeded. Finalizing...");
             onSuccess();
         } else {
             // Unexpected status, maybe requiring action, treat as waiting/error for now
@@ -77,7 +84,8 @@ const PaymentForm: React.FC<{
                 id="link-authentication-element"
                 options={{ 
                     defaultValues: { email: userEmail }
-                }} 
+                }}
+                onReady={() => setIsLinkReady(true)}
             />
             
             <PaymentElement 
@@ -85,18 +93,24 @@ const PaymentForm: React.FC<{
                 options={{ 
                     layout: "tabs",
                     paymentMethodOrder: ['card', 'apple_pay', 'google_pay']
-                }} 
+                }}
+                onReady={() => setIsPaymentReady(true)}
             />
             
             <button 
                 type="submit"
-                disabled={isLoading || !stripe || !elements} 
+                disabled={isLoading || !isFormReady} 
                 className="w-full h-14 mt-4 bg-purple-600 hover:bg-purple-500 text-white text-lg font-bold rounded-xl shadow-lg shadow-purple-600/20 transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
             >
                 {isLoading ? (
                     <div className="flex items-center gap-2">
                         <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
                         <span>Processing...</span>
+                    </div>
+                ) : !isFormReady ? (
+                    <div className="flex items-center gap-2 text-white/70">
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                        <span className="text-sm">Loading Secure Form...</span>
                     </div>
                 ) : (
                     <>
@@ -111,6 +125,7 @@ const PaymentForm: React.FC<{
 
 const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, event, recipientUserId, promoCode, appliedDiscountPercent, promoOwnerName }) => {
   const { user, refreshUser } = useAuth();
+  const navigate = useNavigate();
   const [view, setView] = useState<View>('checkout');
   const [errorMessage, setErrorMessage] = useState('');
   const [platformDonation, setPlatformDonation] = useState(0);
@@ -276,7 +291,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
     setErrorMessage('');
     
     try {
-      // Create Order + PaymentIntent on Backend
+      // Step 1: Initiate Checkout (Create Order & PaymentIntent)
+      console.log("[Checkout] Initiating order...");
       const response = await api.purchaseTicket(
           user.id, 
           event.id, 
@@ -304,15 +320,21 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
   const handlePaymentSuccess = async () => {
       // Payment confirmed by Stripe Client Side
       try {
-          // Critical: Call Manual Confirmation Endpoint to bypass blocked webhooks
+          // Step 3: Confirm & Finalize
           if (currentOrderId) {
+              console.log(`[Checkout] Confirming order ${currentOrderId} with backend...`);
               await api.confirmOrderPayment(currentOrderId);
+              console.log("[Checkout] Backend confirmation successful.");
+          } else {
+              console.warn("[Checkout] No currentOrderId found during success handler.");
           }
           await refreshUser(); // Fetch newly purchased tickets
           setView('success');
       } catch (e) {
-          console.warn("User refresh or confirmation failed after payment", e);
-          setView('success'); // Still show success as payment went through
+          console.warn("[Checkout] User refresh or confirmation failed after payment", e);
+          // Even if confirmation fails (e.g. timeout), the payment is done.
+          // The backend should eventually reconcile via webhook, or user can refresh.
+          setView('success'); 
       }
   }
 
@@ -327,6 +349,11 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
       }, 300);
   }
 
+  const handleViewTickets = () => {
+      handleClose();
+      navigate('/my-tickets');
+  };
+
   // Helper to determine what text to show for attribution
   const attributionText = useMemo(() => {
       if (activeOwnerName) return activeOwnerName;
@@ -335,16 +362,17 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
   }, [activeOwnerName, activePromoCode]);
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose}>
+    <Modal isOpen={isOpen} onClose={handleClose} preventCloseOnOutsideClick={true}>
         {/* 
             Container constraints:
             max-h-[calc(100vh-64px)] ensures top and bottom margins (about 32px each) are always visible 
             so the modal doesn't touch screen edges vertically.
+            Removed min-h to let it shrink to fit content perfectly.
         */}
-        <div className="w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl shadow-purple-500/10 overflow-hidden flex flex-col max-h-[calc(100vh-64px)] min-h-[400px]">
+        <div className="w-full max-w-lg bg-neutral-900 border border-neutral-800 rounded-2xl shadow-2xl shadow-purple-500/10 overflow-hidden flex flex-col max-h-[calc(100vh-64px)]">
             {view === 'checkout' && (
-                <div className="flex flex-col h-full overflow-hidden">
-                    <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar flex-grow">
+                <div className="flex flex-col overflow-hidden w-full">
+                    <div className="p-6 md:p-8 overflow-y-auto custom-scrollbar flex-1 min-h-0">
                         <h2 className="text-2xl font-bold text-white mb-6">Checkout Summary</h2>
                         <div className="space-y-4 mb-8 border-b border-neutral-800 pb-6">
                             {items.map(item => (
@@ -447,8 +475,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
                         </div>
                     </div>
                     
-                    <div className="flex-shrink-0 bg-neutral-900 border-t border-neutral-800">
-                         <button onClick={handleInitiatePayment} className="w-full h-16 md:h-20 px-6 bg-purple-600 text-white text-lg font-semibold hover:bg-purple-500 transition-all duration-300 flex items-center justify-center space-x-3">
+                    <div className="flex-shrink-0 bg-neutral-900 border-t border-neutral-800 rounded-b-2xl">
+                         <button onClick={handleInitiatePayment} className="w-full h-16 md:h-20 px-6 bg-purple-600 text-white text-lg font-semibold hover:bg-purple-500 transition-all duration-300 flex items-center justify-center space-x-3 rounded-b-2xl">
                             <ShieldCheckIcon className="w-5 h-5" />
                             <span>Proceed to Payment</span>
                         </button>
@@ -457,7 +485,7 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
             )}
 
             {view === 'loading' && (
-                 <div className="flex flex-col justify-center items-center h-full flex-grow p-8">
+                 <div className="flex flex-col justify-center items-center p-12">
                     <div className="w-12 h-12 border-4 border-purple-600 border-t-transparent rounded-full animate-spin mb-4"></div>
                     <p className="text-neutral-300 text-lg font-medium">Securing Checkout...</p>
                     <p className="text-neutral-500 text-sm mt-2">Preparing secure payment channel.</p>
@@ -465,9 +493,9 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
             )}
 
             {view === 'payment_form' && clientSecret && (
-                <div className="flex flex-col h-full overflow-hidden">
-                    {/* The Stripe Elements container must scroll independently */}
-                    <div className="overflow-y-auto custom-scrollbar flex-grow bg-neutral-900">
+                <div className="flex flex-col overflow-hidden w-full">
+                    {/* The Stripe Elements container must scroll independently if needed */}
+                    <div className="overflow-y-auto custom-scrollbar flex-1 bg-neutral-900 min-h-0">
                         <Elements 
                             stripe={stripePromise} 
                             options={{ 
@@ -495,8 +523,8 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
             )}
 
             {view === 'error' && (
-                <div className="flex flex-col h-full">
-                    <div className="p-12 text-center flex-grow flex flex-col justify-center items-center overflow-y-auto">
+                <div className="flex flex-col w-full">
+                    <div className="p-12 text-center flex-grow flex flex-col justify-center items-center overflow-y-auto flex-1">
                         <div className="w-20 h-20 bg-red-500/10 rounded-full flex items-center justify-center mx-auto mb-6">
                             <span className="text-4xl">⚠️</span>
                         </div>
@@ -506,10 +534,10 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
                         </p>
                     </div>
                      <div className="flex flex-shrink-0">
-                        <button onClick={handleClose} className="w-1/2 h-16 px-6 bg-neutral-800 text-neutral-300 font-semibold hover:bg-neutral-700 transition-all border-t border-neutral-700">
+                        <button onClick={handleClose} className="w-1/2 h-16 px-6 bg-neutral-800 text-neutral-300 font-semibold hover:bg-neutral-700 transition-all border-t border-neutral-700 rounded-bl-2xl">
                             Cancel
                         </button>
-                        <button onClick={() => setView('checkout')} className="w-1/2 h-16 px-6 bg-purple-600 text-white font-semibold hover:bg-purple-500 transition-all">
+                        <button onClick={() => setView('checkout')} className="w-1/2 h-16 px-6 bg-purple-600 text-white font-semibold hover:bg-purple-500 transition-all rounded-br-2xl">
                             Try Again
                         </button>
                      </div>
@@ -517,18 +545,20 @@ const CheckoutModal: React.FC<CheckoutModalProps> = ({ isOpen, onClose, cart, ev
             )}
 
             {view === 'success' && (
-                <div className="animate-in zoom-in duration-300 flex flex-col h-full">
-                    <div className="p-12 text-center flex-grow flex flex-col justify-center items-center overflow-y-auto">
-                        <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6 relative">
-                            <CheckCircleIcon className="w-16 h-16 text-green-400 absolute" />
+                <div className="flex flex-col w-full animate-in zoom-in duration-300">
+                    <div className="flex-grow flex flex-col justify-center items-center p-8 md:p-12 text-center overflow-y-auto flex-1">
+                        <div className="w-24 h-24 bg-green-500/10 rounded-full flex items-center justify-center mx-auto mb-6 relative flex-shrink-0">
+                            <CheckCircleIcon className="w-16 h-16 text-green-400 relative z-10" />
                             <div className="absolute inset-0 rounded-full border-4 border-green-500/30 animate-ping"></div>
                         </div>
                         <h2 className="text-3xl font-black text-white mb-2 tracking-tight">Ticket Confirmed!</h2>
-                        <p className="text-neutral-400 mb-8 text-lg">Your order was successful. You will receive an email confirmation shortly.</p>
+                        <p className="text-neutral-400 text-lg">Your order was successful. You will receive an email confirmation shortly.</p>
                     </div>
-                     <button onClick={handleClose} className="w-full h-16 px-6 bg-neutral-800 text-white text-lg font-semibold hover:bg-neutral-700 transition-all duration-300 border-t border-neutral-700 flex-shrink-0">
-                        View Tickets
-                    </button>
+                    <div className="flex-shrink-0 w-full">
+                         <button onClick={handleViewTickets} className="w-full h-20 px-6 bg-green-600 hover:bg-green-500 text-white text-lg font-bold transition-all duration-300 flex items-center justify-center shadow-[0_0_30px_rgba(22,163,74,0.3)] rounded-b-2xl">
+                            View Tickets
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

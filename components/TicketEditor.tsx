@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { v4 as uuidv4 } from 'uuid';
 import { TicketOption } from '../types';
 import { TrashIcon, PlusIcon, GripVerticalIcon, ChevronDownIcon } from './Icons';
@@ -22,7 +22,13 @@ const EditableTicketItem: React.FC<{
     onUpdate: (key: string, field: keyof TicketOption, value: any) => void,
     onDelete: () => void,
     isFundraiser: boolean,
-}> = ({ ticket, uiKey, isExpanded, onToggle, onUpdate, onDelete, isFundraiser }) => {
+    // Drag props
+    index: number;
+    onDragStart: (index: number) => void;
+    onDragEnter: (index: number) => void;
+    onDragEnd: () => void;
+    isDragging: boolean;
+}> = ({ ticket, uiKey, isExpanded, onToggle, onUpdate, onDelete, isFundraiser, index, onDragStart, onDragEnter, onDragEnd, isDragging }) => {
     
     const soldCount = ticket.sold || 0;
     const maxCount = ticket.quantity;
@@ -38,7 +44,13 @@ const EditableTicketItem: React.FC<{
     };
 
     return (
-        <div className={`bg-neutral-900 border rounded-2xl transition-all duration-300 group ${isExpanded ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-neutral-800 hover:border-neutral-700'}`}>
+        <div 
+            draggable
+            onDragStart={() => onDragStart(index)}
+            onDragEnter={() => onDragEnter(index)}
+            onDragEnd={onDragEnd}
+            onDragOver={(e) => e.preventDefault()}
+            className={`bg-neutral-900 border rounded-2xl transition-all duration-300 group ${isExpanded ? 'border-purple-500 shadow-lg shadow-purple-500/10' : 'border-neutral-800 hover:border-neutral-700'} ${isDragging ? 'opacity-50 scale-105 shadow-2xl shadow-purple-500/20' : 'opacity-100'}`}>
             {/* --- Summary View (Header) --- */}
             <div 
                 className="flex items-center p-4 cursor-pointer"
@@ -146,6 +158,9 @@ const EditableTicketItem: React.FC<{
 const TicketEditor: React.FC<TicketEditorProps> = ({ tickets, onTicketsChange, isFundraiser = false }) => {
     const [wrappers, setWrappers] = useState<Wrapper[]>([]);
     const [expandedUiKey, setExpandedUiKey] = useState<string | null>(null);
+    const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+    const dragItem = useRef<number | null>(null);
+    const dragOverItem = useRef<number | null>(null);
 
     useEffect(() => {
         setWrappers(currentWrappers => {
@@ -167,6 +182,27 @@ const TicketEditor: React.FC<TicketEditorProps> = ({ tickets, onTicketsChange, i
     const updateParent = (newWrappers: Wrapper[]) => {
         const domainTickets = newWrappers.map(w => w.data);
         onTicketsChange(domainTickets);
+    };
+
+    const handleDragStart = (index: number) => {
+        dragItem.current = index;
+        setDraggingIndex(index);
+    };
+
+    const handleDragEnter = (index: number) => {
+        dragOverItem.current = index;
+    };
+    
+    const handleDragEnd = () => {
+        if (dragItem.current !== null && dragOverItem.current !== null && dragItem.current !== dragOverItem.current) {
+            const newWrappers = [...wrappers];
+            const draggedItemContent = newWrappers.splice(dragItem.current, 1)[0];
+            newWrappers.splice(dragOverItem.current, 0, draggedItemContent);
+            updateParent(newWrappers);
+        }
+        setDraggingIndex(null);
+        dragItem.current = null;
+        dragOverItem.current = null;
     };
 
     const handleTicketChange = (key: string, field: keyof TicketOption, value: any) => {
@@ -213,6 +249,11 @@ const TicketEditor: React.FC<TicketEditorProps> = ({ tickets, onTicketsChange, i
                     onUpdate={handleTicketChange}
                     onDelete={() => removeTicket(wrapper.uiKey)}
                     isFundraiser={isFundraiser}
+                    index={index}
+                    onDragStart={handleDragStart}
+                    onDragEnter={handleDragEnter}
+                    onDragEnd={handleDragEnd}
+                    isDragging={draggingIndex === index}
                 />
             ))}
             

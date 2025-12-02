@@ -2,7 +2,28 @@
 
 ## Promotions & Promo Codes
 
-### 1. Update Promoter Code (Alias/Handle)
+### 1. Create Promo Code (NEW)
+**Endpoint:** `POST /events/:eventId/promocodes`
+**Auth:** Required (User must be host of the event)
+
+**Payload (Updated):**
+```json
+{
+  "code": "EARLYBIRD20",
+  "discountPercent": 20,
+  "maxUses": 100
+}
+```
+
+**Business Logic Requirements:**
+1.  **Accept `discountPercent`:** The endpoint must accept the new `discountPercent` field.
+2.  **Validation:**
+    *   `discountPercent` must be a number between 0 and 100.
+    *   If the event `type` is 'fundraiser', the backend should either reject requests with `discountPercent > 0` or silently set it to 0. A `discountPercent` of 0 is valid and can be used for tracking-only codes.
+3.  **Defaulting:** If `discountPercent` is **not** provided in the payload, the backend should use the `defaultPromoDiscount` value from the parent `Event` object.
+4.  **Storage:** The `discountPercent` value must be saved on the individual `PromoCode` record in the database.
+
+### 2. Update Promoter Code (Alias/Handle)
 **Endpoint:** `PUT /promotions/:eventId/code`
 **Auth:** Required (User must be the owner of the promotion)
 
@@ -26,7 +47,7 @@
 4.  **Response:**
     *   Success: `200 OK` `{ "success": true, "code": "NEWALIAS2025", "link": "https://..." }`
 
-### 2. Validation Endpoint
+### 3. Validation Endpoint
 **Endpoint:** `POST /events/:eventId/promocodes/validate`
 
 **Requirement:**
@@ -34,7 +55,7 @@
 *   If `OLDCODE` is sent, it should still return `{ valid: true, discountPercent: ..., ownerName: "User Name" }`.
 *   This ensures links distributed prior to the code change do not break at checkout.
 
-### 3. Reporting Endpoint Fix (`/events/:id/report`)
+### 4. Reporting Endpoint Fix (`/events/:id/report`)
 **Current Bug:** The endpoint is returning entries with `promoterName: "Unknown User"` and zero stats.
 **Fix:** 
 *   Ensure the SQL query joins correctly on the `Users` table.

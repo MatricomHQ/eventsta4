@@ -1,8 +1,4 @@
 
-
-
-
-
 import React, { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate, Link } from 'react-router-dom'; // Added useLocation
 import { useAuth } from '../contexts/AuthContext';
@@ -342,6 +338,21 @@ const HostsSection: React.FC = () => {
         setSelectedHost(null);
         refreshUser(); // This will trigger the useEffect to refetch hosts.
     };
+
+    const getInitials = (name: string) => {
+        if (!name) return '?';
+        const words = name.trim().split(' ').filter(Boolean);
+        if (words.length > 1) {
+            return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+        }
+        if (words.length === 1 && words[0].length > 1) {
+            return words[0].substring(0, 2).toUpperCase();
+        }
+        if (words.length === 1 && words[0].length === 1) {
+            return words[0][0].toUpperCase();
+        }
+        return '?';
+    };
     
     if (selectedHost) {
         return <HostEditor 
@@ -367,7 +378,13 @@ const HostsSection: React.FC = () => {
                 {hosts.map(host => (
                     <div key={host.id} className="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 flex flex-col justify-between">
                         <div className="flex items-center mb-4">
-                            <img src={host.imageUrl || `https://picsum.photos/seed/${host.id}/100/100`} alt={host.name} className="w-12 h-12 rounded-full mr-4 object-cover bg-neutral-800"/>
+                            <div className="w-12 h-12 rounded-full mr-4 bg-neutral-800 flex-shrink-0 flex items-center justify-center">
+                                {host.imageUrl ? (
+                                    <img src={host.imageUrl} alt={host.name} className="w-full h-full rounded-full object-cover"/>
+                                ) : (
+                                    <span className="text-xl font-bold text-purple-400">{getInitials(host.name)}</span>
+                                )}
+                            </div>
                             <div>
                                 <h3 className="text-lg font-bold text-white">{host.name}</h3>
                                 <p className="text-sm text-neutral-500">{host.eventIds.length} events</p>
@@ -393,23 +410,66 @@ const HostEditor: React.FC<{host: Host, onBack: () => void, onUpdate: (host: Hos
     const [saveSuccess, setSaveSuccess] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
     
+    // New state for upload management
+    const [uploadingField, setUploadingField] = useState<'profile' | 'cover' | null>(null);
+
+    const getInitials = (name: string) => {
+        if (!name) return '?';
+        const words = name.trim().split(' ').filter(Boolean);
+        if (words.length > 1) {
+            return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+        }
+        if (words.length === 1 && words[0].length > 1) {
+            return words[0].substring(0, 2).toUpperCase();
+        }
+        if (words.length === 1 && words[0].length === 1) {
+            return words[0][0].toUpperCase();
+        }
+        return '?';
+    };
+    
     const handleFileSelect = async (file: File | null, type: 'profile' | 'cover') => {
         if (!file) return;
-        const reader = new FileReader();
-        reader.onload = (e) => {
+        
+        setUploadingField(type);
+        try {
+            // Upload to server to get a URL instead of reading Base64 locally
+            const url = await api.uploadFile(file);
             const field = type === 'profile' ? 'imageUrl' : 'coverImageUrl';
-            setDetails(prev => ({ ...prev, [field]: e.target?.result as string }));
-        };
-        reader.readAsDataURL(file);
+            setDetails(prev => ({ ...prev, [field]: url }));
+        } catch (error) {
+            console.error("Failed to upload host image", error);
+            alert("Failed to upload image. Please try again.");
+        } finally {
+            setUploadingField(null);
+        }
     };
 
     const handleSave = async () => {
+        if (uploadingField) return; // Prevent save while uploading
+        
         setIsSaving(true);
-        const updatedHost = await api.updateHostDetails(host.id, details);
-        onUpdate(updatedHost);
-        setIsSaving(false);
-        setSaveSuccess(true);
-        setTimeout(() => setSaveSuccess(false), 2000);
+        try {
+            // Prepare payload with only editable fields to conform to backend requirements
+            // and ensure no large objects or immutable fields are sent.
+            const payload = {
+                name: details.name,
+                description: details.description,
+                imageUrl: details.imageUrl,
+                coverImageUrl: details.coverImageUrl,
+                reviewsEnabled: details.reviewsEnabled
+            };
+
+            const updatedHost = await api.updateHostDetails(host.id, payload);
+            onUpdate(updatedHost);
+            setSaveSuccess(true);
+            setTimeout(() => setSaveSuccess(false), 2000);
+        } catch (e) {
+            console.error(e);
+            alert("Failed to save host details");
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     const handleDelete = async () => {
@@ -439,19 +499,46 @@ const HostEditor: React.FC<{host: Host, onBack: () => void, onUpdate: (host: Hos
             <div className="bg-neutral-900 border border-neutral-800 rounded-2xl">
                 <div className="p-8">
                      <div className="relative mb-6">
-                        <div className="h-48 bg-neutral-800 rounded-lg overflow-hidden group">
-                            {details.coverImageUrl && <img src={details.coverImageUrl} className="w-full h-full object-cover" />}
-                            <label htmlFor="cover-upload" className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                                <UploadCloudIcon className="w-8 h-8 text-white" />
-                            </label>
-                            <input id="cover-upload" type="file" className="hidden" accept="image/*" onChange={e => handleFileSelect(e.target.files?.[0] || null, 'cover')} />
+                        {/* Cover Image Area */}
+                        <div className="h-48 bg-neutral-800 rounded-lg overflow-hidden group relative">
+                            {details.coverImageUrl ? (
+                                <img src={details.coverImageUrl} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full bg-gradient-to-br from-purple-900 via-neutral-900 to-black flex items-center justify-center p-4">
+                                    <h1 className="text-4xl font-black text-white/10 select-none text-center break-words">{details.name}</h1>
+                                </div>
+                            )}
+                            
+                            {uploadingField === 'cover' ? (
+                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
+                                     <div className="w-8 h-8 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            ) : (
+                                <label htmlFor="cover-upload" className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-10">
+                                    <UploadCloudIcon className="w-8 h-8 text-white" />
+                                </label>
+                            )}
+                            <input id="cover-upload" type="file" className="hidden" accept="image/*" disabled={!!uploadingField} onChange={e => handleFileSelect(e.target.files?.[0] || null, 'cover')} />
                         </div>
-                        <div className="absolute -bottom-10 left-6 w-24 h-24 rounded-full border-4 border-neutral-900 bg-neutral-800 overflow-hidden group">
-                            {details.imageUrl && <img src={details.imageUrl} className="w-full h-full object-cover" />}
-                            <label htmlFor="profile-upload" className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
-                                <UploadCloudIcon className="w-6 h-6 text-white" />
-                            </label>
-                            <input id="profile-upload" type="file" className="hidden" accept="image/*" onChange={e => handleFileSelect(e.target.files?.[0] || null, 'profile')} />
+
+                        {/* Profile Image Area */}
+                        <div className="absolute -bottom-10 left-6 w-24 h-24 rounded-full border-4 border-neutral-900 bg-neutral-800 overflow-hidden group relative flex items-center justify-center">
+                            {details.imageUrl ? (
+                                <img src={details.imageUrl} className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="text-3xl font-bold text-purple-400 select-none">{getInitials(details.name)}</span>
+                            )}
+                            
+                            {uploadingField === 'profile' ? (
+                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center z-10">
+                                     <div className="w-6 h-6 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                                </div>
+                            ) : (
+                                <label htmlFor="profile-upload" className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer z-10">
+                                    <UploadCloudIcon className="w-6 h-6 text-white" />
+                                </label>
+                            )}
+                            <input id="profile-upload" type="file" className="hidden" accept="image/*" disabled={!!uploadingField} onChange={e => handleFileSelect(e.target.files?.[0] || null, 'profile')} />
                         </div>
                     </div>
                     <div className="pt-10 space-y-6">
@@ -478,7 +565,7 @@ const HostEditor: React.FC<{host: Host, onBack: () => void, onUpdate: (host: Hos
                     </div>
                 </div>
                 <div className="bg-neutral-900/50 border-t border-neutral-800 px-8 py-4 flex justify-end">
-                     <button onClick={handleSave} disabled={isSaving || saveSuccess} className="px-5 py-2 text-sm font-semibold rounded-full transition-all duration-300 flex items-center justify-center min-w-[100px] bg-purple-600 text-white hover:bg-purple-500 shadow-lg shadow-purple-500/20 disabled:bg-neutral-700 disabled:text-neutral-500 disabled:shadow-none">
+                     <button onClick={handleSave} disabled={isSaving || saveSuccess || !!uploadingField} className="px-5 py-2 text-sm font-semibold rounded-full transition-all duration-300 flex items-center justify-center min-w-[100px] bg-purple-600 text-white hover:bg-purple-500 shadow-lg shadow-purple-500/20 disabled:bg-neutral-700 disabled:text-neutral-500 disabled:shadow-none">
                          {isSaving ? 'Saving...' : saveSuccess ? 'Saved!' : 'Save Changes'}
                     </button>
                 </div>

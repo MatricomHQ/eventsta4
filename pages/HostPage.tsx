@@ -22,17 +22,35 @@ const HostPage: React.FC = () => {
 
     const fromLocation = location.state?.from;
 
+    const getInitials = (name: string) => {
+        if (!name) return '?';
+        const words = name.trim().split(' ').filter(Boolean);
+        if (words.length > 1) {
+            return (words[0][0] + words[words.length - 1][0]).toUpperCase();
+        }
+        if (words.length === 1 && words[0].length > 1) {
+            return words[0].substring(0, 2).toUpperCase();
+        }
+        if (words.length === 1 && words[0].length === 1) {
+            return words[0][0].toUpperCase();
+        }
+        return '?';
+    };
+
     useEffect(() => {
         const fetchHostData = async () => {
             if (!id) return;
             try {
                 setIsLoading(true);
-                const hostData = await api.getHostDetails(id);
+                
+                // Fetch host details and events in parallel for better performance
+                const [hostData, eventData] = await Promise.all([
+                    api.getHostDetails(id),
+                    api.getEventsByHost(id) // Fetch events directly by host ID
+                ]);
+
                 setHost(hostData);
-                if (hostData.eventIds.length > 0) {
-                    const eventData = await api.getEventsByIds(hostData.eventIds);
-                    setEvents(eventData);
-                }
+                setEvents(eventData);
             } catch (err) {
                 setError('Failed to load host details.');
                 console.error(err);
@@ -77,29 +95,41 @@ const HostPage: React.FC = () => {
             />
 
             {/* Blurred Background Layer - Fixed, No Scroll Movement */}
-            <div 
-                className="fixed inset-0 z-[-1]"
-            >
-                <div
-                    className="absolute inset-0 bg-cover bg-center filter blur-3xl transition-opacity duration-1000 ease-in-out"
-                    style={{ backgroundImage: `url(${host.coverImageUrl})`, transform: 'scale(1.2)' }}
-                />
+            <div className="fixed inset-0 z-[-1]">
+                {host.coverImageUrl ? (
+                    <div
+                        className="absolute inset-0 bg-cover bg-center filter blur-3xl transition-opacity duration-1000 ease-in-out"
+                        style={{ backgroundImage: `url(${host.coverImageUrl})`, transform: 'scale(1.2)' }}
+                    />
+                ) : (
+                    <div className="absolute inset-0 bg-gradient-to-br from-purple-950 via-black to-black" />
+                )}
             </div>
             <div className="fixed inset-0 bg-black/70 z-[-1]"></div>
 
             <div className="-mt-20">
                 {/* Hero Section */}
                 <div className="relative h-[50vh] min-h-[400px] w-full overflow-hidden flex flex-col justify-end">
-                    <div
-                        className="absolute top-0 left-0 w-full h-[120%] bg-cover bg-center"
-                        style={{ backgroundImage: `url(${host.coverImageUrl})` }}
-                    />
+                    {host.coverImageUrl ? (
+                        <div
+                            className="absolute top-0 left-0 w-full h-[120%] bg-cover bg-center"
+                            style={{ backgroundImage: `url(${host.coverImageUrl})` }}
+                        />
+                    ) : (
+                        <div className="absolute top-0 left-0 w-full h-[120%] bg-gradient-to-br from-purple-900 via-neutral-900 to-black flex items-center justify-center p-8">
+                            <h1 className="text-6xl md:text-8xl font-black text-white/20 select-none text-center break-words">{host.name}</h1>
+                        </div>
+                    )}
                     <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent" />
                     
                     <div className="relative container mx-auto max-w-7xl px-6 pb-8 z-10">
                         <div className="flex flex-col items-center md:flex-row md:items-end">
-                        <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-[#0a0a0a] bg-neutral-800 overflow-hidden flex-shrink-0">
-                            <img src={host.imageUrl} alt={host.name} className="w-full h-full object-cover" />
+                        <div className="w-32 h-32 md:w-40 md:h-40 rounded-full border-4 border-[#0a0a0a] bg-neutral-800 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                            {host.imageUrl ? (
+                                <img src={host.imageUrl} alt={host.name} className="w-full h-full object-cover" />
+                            ) : (
+                                <span className="text-5xl md:text-6xl font-bold text-purple-400 select-none">{getInitials(host.name)}</span>
+                            )}
                         </div>
                         <div className="mt-4 md:mt-0 md:ml-6 text-center md:text-left">
                             <h1 className="text-3xl md:text-5xl font-bold text-white text-glow">{host.name}</h1>
