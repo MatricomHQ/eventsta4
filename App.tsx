@@ -1,6 +1,6 @@
 
 import React, { Suspense, useState, useEffect } from 'react';
-import { HashRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import Header from './components/Header';
 import Home from './pages/Home';
@@ -197,9 +197,9 @@ export const AppContent: React.FC = () => {
 const App: React.FC = () => {
   return (
     <AuthProvider>
-      <HashRouter>
+      <BrowserRouter>
         <AppContent />
-      </HashRouter>
+      </BrowserRouter>
     </AuthProvider>
   );
 };

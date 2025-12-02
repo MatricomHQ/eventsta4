@@ -154,7 +154,7 @@ export const getUserProfile = async (): Promise<User> => {
             
             if (promoCode && evtId && typeof window !== 'undefined') {
                  const slug = createEventSlug(titleForSlug, evtId);
-                 finalLink = `${window.location.origin}/#/event/${slug}?promo=${promoCode}`;
+                 finalLink = `${window.location.origin}/event/${slug}?promo=${promoCode}`;
             }
 
             const commissionRate = raw.commission_rate || event?.commission || 0;

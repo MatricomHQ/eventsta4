@@ -144,7 +144,7 @@ const FormBuilder: React.FC<FormBuilderProps> = ({ form: initialForm, onSave, on
     };
 
     const copyPublicLink = () => {
-        const url = `${window.location.origin}/#/form/${form.id}`;
+        const url = `${window.location.origin}/form/${form.id}`;
         navigator.clipboard.writeText(url);
         setCopySuccess(true);
         setTimeout(() => setCopySuccess(false), 2000);

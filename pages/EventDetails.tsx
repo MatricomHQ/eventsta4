@@ -86,7 +86,7 @@ const EventDetails: React.FC = () => {
         const existingPromo = user.promoStats.find(p => p.eventId === event.id && p.status === 'active');
         if (existingPromo) {
             setIsPromoting(true);
-            setPromoLink(existingPromo.promoLink || `${window.location.origin}/#/event/${createEventSlug(event.title, event.id)}`);
+            setPromoLink(existingPromo.promoLink || `${window.location.origin}/event/${createEventSlug(event.title, event.id)}`);
         } else {
             setIsPromoting(false);
             setPromoLink('');
@@ -480,7 +480,7 @@ const EventDetails: React.FC = () => {
         // Use returned code or fallback if response doesn't contain code (depends on backend)
         const code = newPromo.code || newPromo.promo_code || `PROMO_${user.id.slice(0,4)}`;
         
-        setPromoLink(`${window.location.origin}/#/event/${createEventSlug(event.title, event.id)}?promo=${code}`);
+        setPromoLink(`${window.location.origin}/event/${createEventSlug(event.title, event.id)}?promo=${code}`);
     } catch (error) {
         console.error("Failed to start promotion:", error);
     } finally {
